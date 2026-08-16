@@ -5,12 +5,16 @@
 
 #include "physics/constraints.hpp"
 
-#include <Eigen/Geometry>
-
 #include <cmath>
 #include <numbers>
 
+#include <Eigen/Geometry>
+
+#include "math/linalg.hpp"
+
 namespace cosserat::physics {
+
+using math::rotation_matrix;
 
 namespace {
 
@@ -40,44 +44,6 @@ Eigen::Array3d selector_mask(const std::array<bool, 3>& selector)
 }
 
 } // End anonymous namespace
-
-Eigen::Index resolve_index(std::int64_t index, Eigen::Index count)
-{
-    utils::nice_assert(count > 0, "Cannot index into an empty stack");
-
-    const Eigen::Index resolved = (index < 0)
-        ? count + static_cast<Eigen::Index>(index)
-        : static_cast<Eigen::Index>(index);
-
-    utils::nice_assert(
-        resolved >= 0 and resolved < count, "Constraint index is out of range"
-    );
-    return resolved;
-}
-
-Eigen::Matrix3d rotation_matrix(double scale, const Eigen::Vector3d& axis)
-{
-    utils::nice_assert(std::isfinite(scale), "Rotation scale must be finite");
-    utils::nice_assert(
-        axis.array().isFinite().all(), "Rotation axis must be finite"
-    );
-
-    // The reference implementation takes the angle from the axis length and
-    // normalises the axis afterwards, so a unit axis makes scale the angle.
-    const double length = axis.norm();
-    utils::nice_assert(
-        length > rotation_tolerance,
-        "Rotation axis is too short to define a direction"
-    );
-
-    const double angle = scale * length;
-    if (std::abs(angle) < rotation_tolerance) return Eigen::Matrix3d::Identity();
-
-    // Transpose because the reference convention is the transpose of the
-    // textbook Rodrigues matrix; see the header warning.
-    const Eigen::Vector3d unit_axis = axis / length;
-    return Eigen::AngleAxisd(angle, unit_axis).toRotationMatrix().transpose();
-}
 
 // ---------------------------------------------------------------------------
 // OneEndFixedBoundaryCondition

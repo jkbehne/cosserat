@@ -4,12 +4,23 @@
 
 #include <Eigen/Dense>
 
+#include <numbers>
 #include <vector>
 
 namespace cosserat::math {
 namespace {
 
 constexpr double kTol = 1e-12;
+constexpr double kInf = std::numeric_limits<double>::infinity();
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+// nice_assert is assumed to abort. If it throws instead, compile with
+// -DNICE_ASSERT_THROWS. If it compiles out under NDEBUG, guard these tests.
+#ifdef NICE_ASSERT_THROWS
+#define EXPECT_ASSERT_FAILURE(stmt) EXPECT_ANY_THROW({ stmt; })
+#else
+#define EXPECT_ASSERT_FAILURE(stmt) EXPECT_DEATH({ stmt; }, "")
+#endif
 
 template<int Dim>
 using VecBatch = Eigen::Matrix<double, Dim, Eigen::Dynamic>;
@@ -269,6 +280,217 @@ TEST(IsUnitVector, WorksOnFloatScalars)
 TEST(IsUnitVector, NegativeToleranceAlwaysFalse)
 {
     EXPECT_FALSE(is_unit_vector(Eigen::Vector3d::UnitX(), -1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// inverse_rotate
+// ---------------------------------------------------------------------------
+
+TEST(InverseRotate, CoincidentFramesGiveZero)
+{
+    const Eigen::Matrix3d frame =
+        Eigen::AngleAxisd(0.6, Eigen::Vector3d(1, 2, 3).normalized())
+            .toRotationMatrix();
+
+    EXPECT_TRUE(Near(inverse_rotate(frame, frame), Eigen::Vector3d::Zero(), 1e-6));
+    EXPECT_TRUE(Near(
+        inverse_rotate(Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Identity()),
+        Eigen::Vector3d::Zero(), 1e-6));
+}
+
+// The reference returns the negated rotation vector, not the positive one.
+TEST(InverseRotate, ReturnsNegatedRotationVector)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(0.0, 0.0, 1.0);
+    const double angle = 0.7;
+    const Eigen::Matrix3d target =
+        Eigen::AngleAxisd(angle, axis).toRotationMatrix();
+
+    const Eigen::Vector3d result =
+        inverse_rotate(Eigen::Matrix3d::Identity(), target);
+
+    EXPECT_TRUE(Near(result, Eigen::Vector3d(-angle * axis), 1e-10));
+}
+
+TEST(InverseRotate, MagnitudeIsTheRotationAngle)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, -2.0, 0.5).normalized();
+    for (double angle : {0.2, 0.9, 2.0, 3.0})
+    {
+        const Eigen::Matrix3d target =
+            Eigen::AngleAxisd(angle, axis).toRotationMatrix();
+        const Eigen::Vector3d result =
+            inverse_rotate(Eigen::Matrix3d::Identity(), target);
+
+        EXPECT_NEAR(result.norm(), angle, 1e-9) << "angle " << angle;
+    }
+}
+
+TEST(InverseRotate, IsRelativeNotAbsolute)
+{
+    const Eigen::Matrix3d shift =
+        Eigen::AngleAxisd(1.3, Eigen::Vector3d(2, -1, 4).normalized())
+            .toRotationMatrix();
+    const Eigen::Matrix3d from =
+        Eigen::AngleAxisd(0.4, Eigen::Vector3d::UnitX()).toRotationMatrix();
+    const Eigen::Matrix3d to =
+        Eigen::AngleAxisd(0.9, Eigen::Vector3d::UnitY()).toRotationMatrix();
+
+    // Rotating both frames by the same amount changes the relative rotation
+    // only through the frame it is expressed in, not its magnitude.
+    EXPECT_NEAR(inverse_rotate(from, to).norm(),
+                inverse_rotate(Eigen::Matrix3d(from * shift),
+                               Eigen::Matrix3d(to * shift)).norm(),
+                1e-9);
+}
+
+TEST(InverseRotate, ReversingTheFramesNegatesTheResult)
+{
+    const Eigen::Matrix3d from =
+        Eigen::AngleAxisd(0.4, Eigen::Vector3d::UnitX()).toRotationMatrix();
+    const Eigen::Matrix3d to =
+        Eigen::AngleAxisd(0.9, Eigen::Vector3d::UnitY()).toRotationMatrix();
+
+    EXPECT_TRUE(Near(inverse_rotate(from, to),
+                     Eigen::Vector3d(-inverse_rotate(to, from)), 1e-10));
+}
+
+TEST(InverseRotateDeathTest, RejectsNonFiniteFrames)
+{
+    EXPECT_ASSERT_FAILURE(inverse_rotate(
+        Eigen::Matrix3d::Constant(kNaN), Eigen::Matrix3d::Identity()));
+    EXPECT_ASSERT_FAILURE(inverse_rotate(
+        Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Constant(kInf)));
+}
+
+// ---------------------------------------------------------------------------
+// rotation_matrix
+//
+// Follows the reference implementation: the angle is the scale times the axis
+// norm, and the result is the transpose of the textbook Rodrigues matrix.
+// ---------------------------------------------------------------------------
+
+TEST(RotationMatrix, ZeroAngleGivesIdentity)
+{
+    EXPECT_TRUE(Near(rotation_matrix(0.0, Eigen::Vector3d::UnitZ()),
+                     Eigen::Matrix3d::Identity()));
+}
+
+TEST(RotationMatrix, IsOrthogonalWithUnitDeterminant)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, -2.0, 0.5).normalized();
+    const Eigen::Matrix3d rotation = rotation_matrix(0.7, axis);
+
+    EXPECT_TRUE(Near(rotation * rotation.transpose(), Eigen::Matrix3d::Identity()));
+    EXPECT_NEAR(rotation.determinant(), 1.0, 1e-12);
+}
+
+TEST(RotationMatrix, LeavesItsOwnAxisFixed)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, 2.0, 3.0).normalized();
+    EXPECT_TRUE(Near(rotation_matrix(1.1, axis) * axis, axis));
+}
+
+// Transposed convention: the result is R(-angle) in the textbook sense.
+TEST(RotationMatrix, IsTransposeOfTextbookRodrigues)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(0.0, 0.0, 1.0);
+    const double angle = 0.6;
+
+    const Eigen::Matrix3d textbook =
+        Eigen::AngleAxisd(angle, axis).toRotationMatrix();
+
+    EXPECT_TRUE(Near(rotation_matrix(angle, axis), textbook.transpose()));
+    EXPECT_TRUE(Near(rotation_matrix(-angle, axis), textbook));
+}
+
+// The angle is scale * ||axis||, so a non-unit axis rescales the rotation.
+TEST(RotationMatrix, AngleScalesWithAxisNorm)
+{
+    const Eigen::Vector3d unit = Eigen::Vector3d::UnitZ();
+    EXPECT_TRUE(Near(rotation_matrix(0.5, 2.0 * unit), rotation_matrix(1.0, unit)));
+}
+
+TEST(RotationMatrix, HalfTurnAboutZ)
+{
+    const Eigen::Matrix3d rotation =
+        rotation_matrix(std::numbers::pi, Eigen::Vector3d::UnitZ());
+
+    Eigen::Matrix3d expected;
+    expected << -1.0, 0.0, 0.0,
+                 0.0, -1.0, 0.0,
+                 0.0, 0.0, 1.0;
+    EXPECT_TRUE(Near(rotation, expected, 1e-14));
+}
+
+// Angles below the tolerance short-circuit to an exact identity rather than
+// going through sin and cos of a near-zero argument.
+TEST(RotationMatrix, SmallAngleGivesExactIdentity)
+{
+    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
+
+    EXPECT_EQ(rotation_matrix(1e-15, Eigen::Vector3d::UnitZ()), identity);
+    EXPECT_EQ(rotation_matrix(-1e-15, Eigen::Vector3d::UnitZ()), identity);
+    EXPECT_EQ(rotation_matrix(0.5 * rotation_tolerance, Eigen::Vector3d::UnitZ()),
+              identity);
+}
+
+// A short-but-legal axis still rotates, because the angle scales with length.
+TEST(RotationMatrix, AngleJustAboveToleranceStillRotates)
+{
+    const Eigen::Matrix3d rotation =
+        rotation_matrix(10.0 * rotation_tolerance, Eigen::Vector3d::UnitZ());
+
+    EXPECT_NE(rotation, Eigen::Matrix3d::Identity());
+    EXPECT_TRUE(Near(rotation, Eigen::Matrix3d::Identity(), 1e-9));
+}
+
+// Agrees with the reference Rodrigues expansion across a range of angles.
+TEST(RotationMatrix, MatchesReferenceExpansion)
+{
+    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, -2.0, 3.0).normalized();
+    for (double angle : {-3.5, -1.0, 0.25, 1.0, 2.7, 6.0})
+    {
+        const double s = std::sin(angle);
+        const double c1 = 1.0 - std::cos(angle);
+        const double v0 = axis(0);
+        const double v1 = axis(1);
+        const double v2 = axis(2);
+
+        Eigen::Matrix3d expected;
+        expected(0, 0) = 1.0 - c1 * (v1 * v1 + v2 * v2);
+        expected(1, 1) = 1.0 - c1 * (v0 * v0 + v2 * v2);
+        expected(2, 2) = 1.0 - c1 * (v0 * v0 + v1 * v1);
+        expected(0, 1) = s * v2 + c1 * v0 * v1;
+        expected(1, 0) = -s * v2 + c1 * v0 * v1;
+        expected(0, 2) = -s * v1 + c1 * v0 * v2;
+        expected(2, 0) = s * v1 + c1 * v0 * v2;
+        expected(1, 2) = s * v0 + c1 * v1 * v2;
+        expected(2, 1) = -s * v0 + c1 * v1 * v2;
+
+        EXPECT_TRUE(Near(rotation_matrix(angle, axis), expected, 1e-14))
+            << "angle " << angle;
+    }
+}
+
+TEST(RotationMatrixDeathTest, RejectsAxisShorterThanTolerance)
+{
+    EXPECT_ASSERT_FAILURE(rotation_matrix(1.0, Eigen::Vector3d::Zero()));
+    EXPECT_ASSERT_FAILURE(
+        rotation_matrix(1.0, Eigen::Vector3d(0.5 * rotation_tolerance, 0.0, 0.0)));
+}
+
+TEST(RotationMatrix, AcceptsAxisLongerThanTolerance)
+{
+    EXPECT_NO_THROW({
+        rotation_matrix(1.0, Eigen::Vector3d(10.0 * rotation_tolerance, 0.0, 0.0));
+    });
+}
+
+TEST(RotationMatrixDeathTest, RejectsNonFiniteInputs)
+{
+    EXPECT_ASSERT_FAILURE(rotation_matrix(kNaN, Eigen::Vector3d::UnitZ()));
+    EXPECT_ASSERT_FAILURE(rotation_matrix(1.0, Eigen::Vector3d(kInf, 0, 0)));
 }
 }  // namespace
 }  // namespace cosserat::math

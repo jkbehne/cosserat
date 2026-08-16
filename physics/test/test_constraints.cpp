@@ -13,8 +13,12 @@
 #include <variant>
 #include <vector>
 
+#include "math/linalg.hpp"
+
 namespace cosserat::physics {
 namespace {
+
+using math::rotation_matrix;
 
 // nice_assert is assumed to abort. If it throws instead, compile with
 // -DNICE_ASSERT_THROWS. If it compiles out under NDEBUG, guard these tests.
@@ -110,161 +114,6 @@ Vector3DStack stack_of(std::initializer_list<Eigen::Vector3d> rows)
 ::testing::AssertionResult Near(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b)
 {
     return Near(a, b, kTol);
-}
-
-// ---------------------------------------------------------------------------
-// resolve_index
-// ---------------------------------------------------------------------------
-
-TEST(ResolveIndex, PassesThroughNonNegativeIndices)
-{
-    EXPECT_EQ(resolve_index(0, 5), 0);
-    EXPECT_EQ(resolve_index(3, 5), 3);
-    EXPECT_EQ(resolve_index(4, 5), 4);
-}
-
-TEST(ResolveIndex, CountsBackFromTheEndForNegativeIndices)
-{
-    EXPECT_EQ(resolve_index(-1, 5), 4);
-    EXPECT_EQ(resolve_index(-2, 5), 3);
-    EXPECT_EQ(resolve_index(-5, 5), 0);
-}
-
-TEST(ResolveIndexDeathTest, RejectsOutOfRangeIndices)
-{
-    EXPECT_ASSERT_FAILURE(resolve_index(5, 5));
-    EXPECT_ASSERT_FAILURE(resolve_index(-6, 5));
-    EXPECT_ASSERT_FAILURE(resolve_index(0, 0));
-}
-
-// ---------------------------------------------------------------------------
-// rotation_matrix
-//
-// Follows the reference implementation: the angle is the scale times the axis
-// norm, and the result is the transpose of the textbook Rodrigues matrix.
-// ---------------------------------------------------------------------------
-
-TEST(RotationMatrix, ZeroAngleGivesIdentity)
-{
-    EXPECT_TRUE(Near(rotation_matrix(0.0, Eigen::Vector3d::UnitZ()),
-                     Eigen::Matrix3d::Identity()));
-}
-
-TEST(RotationMatrix, IsOrthogonalWithUnitDeterminant)
-{
-    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, -2.0, 0.5).normalized();
-    const Eigen::Matrix3d rotation = rotation_matrix(0.7, axis);
-
-    EXPECT_TRUE(Near(rotation * rotation.transpose(), Eigen::Matrix3d::Identity()));
-    EXPECT_NEAR(rotation.determinant(), 1.0, 1e-12);
-}
-
-TEST(RotationMatrix, LeavesItsOwnAxisFixed)
-{
-    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, 2.0, 3.0).normalized();
-    EXPECT_TRUE(Near(rotation_matrix(1.1, axis) * axis, axis));
-}
-
-// Transposed convention: the result is R(-angle) in the textbook sense.
-TEST(RotationMatrix, IsTransposeOfTextbookRodrigues)
-{
-    const Eigen::Vector3d axis = Eigen::Vector3d(0.0, 0.0, 1.0);
-    const double angle = 0.6;
-
-    const Eigen::Matrix3d textbook =
-        Eigen::AngleAxisd(angle, axis).toRotationMatrix();
-
-    EXPECT_TRUE(Near(rotation_matrix(angle, axis), textbook.transpose()));
-    EXPECT_TRUE(Near(rotation_matrix(-angle, axis), textbook));
-}
-
-// The angle is scale * ||axis||, so a non-unit axis rescales the rotation.
-TEST(RotationMatrix, AngleScalesWithAxisNorm)
-{
-    const Eigen::Vector3d unit = Eigen::Vector3d::UnitZ();
-    EXPECT_TRUE(Near(rotation_matrix(0.5, 2.0 * unit), rotation_matrix(1.0, unit)));
-}
-
-TEST(RotationMatrix, HalfTurnAboutZ)
-{
-    const Eigen::Matrix3d rotation =
-        rotation_matrix(std::numbers::pi, Eigen::Vector3d::UnitZ());
-
-    Eigen::Matrix3d expected;
-    expected << -1.0, 0.0, 0.0,
-                 0.0, -1.0, 0.0,
-                 0.0, 0.0, 1.0;
-    EXPECT_TRUE(Near(rotation, expected, 1e-14));
-}
-
-// Angles below the tolerance short-circuit to an exact identity rather than
-// going through sin and cos of a near-zero argument.
-TEST(RotationMatrix, SmallAngleGivesExactIdentity)
-{
-    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
-
-    EXPECT_EQ(rotation_matrix(1e-15, Eigen::Vector3d::UnitZ()), identity);
-    EXPECT_EQ(rotation_matrix(-1e-15, Eigen::Vector3d::UnitZ()), identity);
-    EXPECT_EQ(rotation_matrix(0.5 * rotation_tolerance, Eigen::Vector3d::UnitZ()),
-              identity);
-}
-
-// A short-but-legal axis still rotates, because the angle scales with length.
-TEST(RotationMatrix, AngleJustAboveToleranceStillRotates)
-{
-    const Eigen::Matrix3d rotation =
-        rotation_matrix(10.0 * rotation_tolerance, Eigen::Vector3d::UnitZ());
-
-    EXPECT_NE(rotation, Eigen::Matrix3d::Identity());
-    EXPECT_TRUE(Near(rotation, Eigen::Matrix3d::Identity(), 1e-9));
-}
-
-// Agrees with the reference Rodrigues expansion across a range of angles.
-TEST(RotationMatrix, MatchesReferenceExpansion)
-{
-    const Eigen::Vector3d axis = Eigen::Vector3d(1.0, -2.0, 3.0).normalized();
-    for (double angle : {-3.5, -1.0, 0.25, 1.0, 2.7, 6.0})
-    {
-        const double s = std::sin(angle);
-        const double c1 = 1.0 - std::cos(angle);
-        const double v0 = axis(0);
-        const double v1 = axis(1);
-        const double v2 = axis(2);
-
-        Eigen::Matrix3d expected;
-        expected(0, 0) = 1.0 - c1 * (v1 * v1 + v2 * v2);
-        expected(1, 1) = 1.0 - c1 * (v0 * v0 + v2 * v2);
-        expected(2, 2) = 1.0 - c1 * (v0 * v0 + v1 * v1);
-        expected(0, 1) = s * v2 + c1 * v0 * v1;
-        expected(1, 0) = -s * v2 + c1 * v0 * v1;
-        expected(0, 2) = -s * v1 + c1 * v0 * v2;
-        expected(2, 0) = s * v1 + c1 * v0 * v2;
-        expected(1, 2) = s * v0 + c1 * v1 * v2;
-        expected(2, 1) = -s * v0 + c1 * v1 * v2;
-
-        EXPECT_TRUE(Near(rotation_matrix(angle, axis), expected, 1e-14))
-            << "angle " << angle;
-    }
-}
-
-TEST(RotationMatrixDeathTest, RejectsAxisShorterThanTolerance)
-{
-    EXPECT_ASSERT_FAILURE(rotation_matrix(1.0, Eigen::Vector3d::Zero()));
-    EXPECT_ASSERT_FAILURE(
-        rotation_matrix(1.0, Eigen::Vector3d(0.5 * rotation_tolerance, 0.0, 0.0)));
-}
-
-TEST(RotationMatrix, AcceptsAxisLongerThanTolerance)
-{
-    EXPECT_NO_THROW({
-        rotation_matrix(1.0, Eigen::Vector3d(10.0 * rotation_tolerance, 0.0, 0.0));
-    });
-}
-
-TEST(RotationMatrixDeathTest, RejectsNonFiniteInputs)
-{
-    EXPECT_ASSERT_FAILURE(rotation_matrix(kNaN, Eigen::Vector3d::UnitZ()));
-    EXPECT_ASSERT_FAILURE(rotation_matrix(1.0, Eigen::Vector3d(kInf, 0, 0)));
 }
 
 // ---------------------------------------------------------------------------

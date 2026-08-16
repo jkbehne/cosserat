@@ -38,6 +38,7 @@
 
 #include <Eigen/Core>
 
+#include "math/indexing.hpp"
 #include "math/types.hpp"
 
 #include "utils/assertions.hpp"
@@ -74,50 +75,6 @@ concept DirectorConstrainableSystem = requires(T sys)
 template<typename T>
 concept ConstrainableSystem =
     PositionConstrainableSystem<T> and DirectorConstrainableSystem<T>;
-
-/**
- * @brief Resolves a possibly negative index against a stack length.
- *
- * Negative indices count back from the end, so -1 addresses the last entry.
- * This mirrors the Python indexing the reference implementation relies on for
- * expressions such as constraining nodes @c (0, -1).
- *
- * @param index Index to resolve; may be negative.
- * @param count Number of entries in the stack being indexed.
- * @return The equivalent non-negative index.
- */
-Eigen::Index resolve_index(std::int64_t index, Eigen::Index count);
-
-/**
- * @brief Smallest axis length and rotation angle treated as significant.
- *
- * An axis shorter than this is rejected as degenerate, and a rotation angle
- * smaller than this yields the identity exactly rather than a matrix built
- * from @c sin and @c cos of a near-zero argument.
- */
-inline constexpr double rotation_tolerance = 1e-12;
-
-/**
- * @brief Rotation matrix about an axis, in the reference implementation's
- *        convention.
- *
- * The rotation angle is @c scale multiplied by the norm of @p axis, and the
- * axis is normalised before use. The matrix itself comes from Eigen's
- * @c AngleAxis conversion rather than a hand-written Rodrigues expansion.
- *
- * @warning The returned matrix is the transpose of the textbook Rodrigues
- *          matrix, that is @f$ R(-\theta) @f$ rather than @f$ R(\theta) @f$.
- *          This matches the reference implementation, whose frame convention
- *          maps lab-frame vectors into the material frame. Passing a negated
- *          angle recovers the textbook orientation.
- *
- * @param scale Angle scale factor; the effective angle is
- *        @c scale * @c axis.norm().
- * @param axis Rotation axis; its length must exceed @ref rotation_tolerance.
- * @return The 3 by 3 rotation matrix, or the identity when the effective angle
- *         is smaller than @ref rotation_tolerance.
- */
-Eigen::Matrix3d rotation_matrix(double scale, const Eigen::Vector3d& axis);
 
 // ---------------------------------------------------------------------------
 // Free boundary condition

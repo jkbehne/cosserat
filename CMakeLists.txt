@@ -290,6 +290,21 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_indexing math/test/test_indexing.cpp)
+    target_link_libraries(test_indexing
+        PRIVATE
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_indexing PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_indexing
+        PROPERTIES
+            LABELS math
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_forces physics/test/test_forces.cpp)
     target_link_libraries(test_forces
         PRIVATE
@@ -333,6 +348,22 @@ if(BUILD_TESTING)
     )
     target_compile_options(test_constraints PRIVATE ${PROJECT_STRICT_WARNINGS})
     gtest_discover_tests(test_constraints
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_joints physics/test/test_joints.cpp)
+    target_link_libraries(test_joints
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_joints PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_joints
         PROPERTIES
             LABELS physics
         DISCOVERY_TIMEOUT 30
