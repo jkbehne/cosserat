@@ -115,6 +115,8 @@ add_library(utils::utils ALIAS utils)
 target_include_directories(utils ${UTILS_SCOPE}
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
     "$<INSTALL_INTERFACE:include>"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/json/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/eigen"
 )
 target_compile_features(utils ${UTILS_SCOPE} cxx_std_20)
 
@@ -255,6 +257,20 @@ if(BUILD_TESTING)
     )
     target_compile_options(test_assertions PRIVATE ${PROJECT_STRICT_WARNINGS})
     gtest_discover_tests(test_assertions
+        PROPERTIES
+            LABELS utils
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_file_utils utils/test/test_file_utils.cpp)
+    target_link_libraries(test_file_utils
+        PRIVATE
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_file_utils PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_file_utils
         PROPERTIES
             LABELS utils
         DISCOVERY_TIMEOUT 30

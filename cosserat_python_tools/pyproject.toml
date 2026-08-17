@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cosserat_python_tools"
+version = "0.1.0"
+description = "Tools for cosserat C++ library in Python"
+authors = [{ name = "Josh Behne", email = "joshbehne@gmail.com" }]
+dependencies = [
+    "numpy",
+    "pytest",
+]
