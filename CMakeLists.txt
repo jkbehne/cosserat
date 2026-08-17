@@ -321,6 +321,21 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_finite_difference math/test/test_finite_difference.cpp)
+    target_link_libraries(test_finite_difference
+        PRIVATE
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_finite_difference PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_finite_difference
+        PROPERTIES
+            LABELS math
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_forces physics/test/test_forces.cpp)
     target_link_libraries(test_forces
         PRIVATE

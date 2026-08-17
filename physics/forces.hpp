@@ -218,7 +218,7 @@ public: // Methods
         const double scale = 1.0 / static_cast<double>(num_elements);
         const Eigen::VectorXd ones = Eigen::VectorXd::Ones(num_elements);
         const auto repeated = scale * (m_torque * ones.transpose());
-        system.external_torques() += math::batched_matrix_vector<3>(
+        system.external_torques() += math::batched_matrix_vector(
             system.frames(),
             repeated
         );
@@ -268,16 +268,17 @@ public: // Methods
         const Eigen::VectorXd torque_mag = factor * m_spline.array() * sine_arg.array().sin();
 
         const auto torque = m_direction * torque_mag.reverse().transpose();
-        const Vector3DStack torque_product = math::batched_matrix_vector<3>(
+        const Vector3DStack torque_product = math::batched_matrix_vector(
             system.frames(), torque
         );
         const auto num_torques = torque_product.rows();
         system.external_torques().bottomRows(num_torques - 1) +=
             torque_product.bottomRows(num_torques - 1);
-        const Vector3DStack torque_mismatch = math::batched_matrix_vector<3>(
-            system.frames(),
-            torque.rightCols(num_torques - 1),
+        const Vector3DStack torque_mismatch = math::batched_matrix_vector<
             true /* ignore size mismatch */
+        >(
+            system.frames(),
+            torque.rightCols(num_torques - 1)
         );
         system.external_torques().topRows(num_torques - 1)
             -= torque_mismatch.topRows(num_torques - 1);
