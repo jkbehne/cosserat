@@ -27,8 +27,8 @@ template<typename T>
 concept ForceableSystem = requires(T sys)
 {
     {sys.num_elements()} -> std::convertible_to<std::uint64_t>;
-    {sys.mass()} -> std::same_as<const Eigen::VectorXd&>;
-    {sys.external_forces()} -> std::same_as<Vector3DStack&>;
+    {sys.masses()} -> std::same_as<const Eigen::VectorXd&>;
+    {sys.mutable_external_forces()} -> std::same_as<Vector3DStack&>;
 };
 
 template<typename T>
@@ -36,7 +36,7 @@ concept TorqueableSystem = requires(T sys)
 {
     {sys.num_elements()} -> std::convertible_to<std::uint64_t>;
     {sys.frames()} -> std::same_as<const Matrix3DStack&>;
-    {sys.external_torques()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_external_torques()} -> std::same_as<Vector3DStack&>;
 };
 
 template<typename T>
@@ -52,8 +52,8 @@ public: // Methods
     template<ForceableSystem SystemType>
     void apply_forces(SystemType& system, double) const
     {
-        const Eigen::VectorXd& mass = system.mass();
-        system.external_forces().col(GravityCoord::idx) += gravity * mass;
+        const Eigen::VectorXd& mass = system.masses();
+        system.mutable_external_forces().col(GravityCoord::idx) += gravity * mass;
     }
 
     template<typename T>
@@ -83,10 +83,10 @@ public: // Methods
     void apply_forces(SystemType& system, double time) const
     {
         const auto factor = m_linear_ramp(time);
-        const auto num_entries = system.external_forces().rows();
+        const auto num_entries = system.mutable_external_forces().rows();
         utils::nice_assert(num_entries > 0, "Need at least one force entry");
-        system.external_forces().row(0) += factor * m_first_link_force.transpose();
-        system.external_forces().row(num_entries - 1) += factor * m_last_link_force.transpose();
+        system.mutable_external_forces().row(0) += factor * m_first_link_force.transpose();
+        system.mutable_external_forces().row(num_entries - 1) += factor * m_last_link_force.transpose();
     }
 
     template<typename T>
@@ -115,12 +115,12 @@ public: // Methods
         utils::nice_assert(num_elements > 0, "Must have at least one element");
         const auto scale = 1.0 / static_cast<double>(num_elements);
         const Eigen::Vector3d scaled_force = scale * m_force;
-        system.external_forces().rowwise() += scaled_force.transpose();
+        system.mutable_external_forces().rowwise() += scaled_force.transpose();
 
         // Because mass is half on first and last element
-        system.external_forces().row(0) -= 0.5 * scaled_force.transpose();
-        const auto last_idx = system.external_forces().rows() - 1;
-        system.external_forces().row(last_idx) -= 0.5 * scaled_force.transpose();
+        system.mutable_external_forces().row(0) -= 0.5 * scaled_force.transpose();
+        const auto last_idx = system.mutable_external_forces().rows() - 1;
+        system.mutable_external_forces().row(last_idx) -= 0.5 * scaled_force.transpose();
     }
 
     template<typename T>
@@ -154,7 +154,7 @@ public: // Methods
     template<ForceableSystem SystemType>
     void apply_forces(SystemType& system, double time) const
     {
-        const auto num_elements = system.external_forces().rows();
+        const auto num_elements = system.mutable_external_forces().rows();
         utils::nice_assert(num_elements > 0, "Expected at least one force element");
         if (time < m_onset_time)
         {
@@ -162,8 +162,8 @@ public: // Methods
             // direction.
             const Eigen::Vector3d start_force = -2.0 * m_first_link_magnitude * m_normal_direction;
             const Eigen::Vector3d end_force = -2.0 * m_last_link_magnitude * m_normal_direction;
-            system.external_forces().row(0) += start_force.transpose();
-            system.external_forces().row(num_elements - 1) += end_force.transpose();
+            system.mutable_external_forces().row(0) += start_force.transpose();
+            system.mutable_external_forces().row(num_elements - 1) += end_force.transpose();
         }
         else
         {
@@ -180,8 +180,8 @@ public: // Methods
             const auto ll_norm_force = ll_mag * std::sin(cos_arg) * m_normal_direction;
             const Eigen::Vector3d ll_force = ll_roll_force + ll_norm_force;
 
-            system.external_forces().row(0) += fl_force.transpose();
-            system.external_forces().row(num_elements - 1) += ll_force.transpose();
+            system.mutable_external_forces().row(0) += fl_force.transpose();
+            system.mutable_external_forces().row(num_elements - 1) += ll_force.transpose();
         }
     }
 
@@ -218,7 +218,7 @@ public: // Methods
         const double scale = 1.0 / static_cast<double>(num_elements);
         const Eigen::VectorXd ones = Eigen::VectorXd::Ones(num_elements);
         const auto repeated = scale * (m_torque * ones.transpose());
-        system.external_torques() += math::batched_matrix_vector(
+        system.mutable_external_torques() += math::batched_matrix_vector(
             system.frames(),
             repeated
         );
@@ -272,7 +272,7 @@ public: // Methods
             system.frames(), torque
         );
         const auto num_torques = torque_product.rows();
-        system.external_torques().bottomRows(num_torques - 1) +=
+        system.mutable_external_torques().bottomRows(num_torques - 1) +=
             torque_product.bottomRows(num_torques - 1);
         const Vector3DStack torque_mismatch = math::batched_matrix_vector<
             true /* ignore size mismatch */
@@ -280,7 +280,7 @@ public: // Methods
             system.frames(),
             torque.rightCols(num_torques - 1)
         );
-        system.external_torques().topRows(num_torques - 1)
+        system.mutable_external_torques().topRows(num_torques - 1)
             -= torque_mismatch.topRows(num_torques - 1);
     }
 

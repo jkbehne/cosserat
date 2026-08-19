@@ -2032,5 +2032,328 @@ TEST(BatchedCrossProduct, ScalarTripleProductMatchesTheDeterminant)
     }
 }
 
+// ---------------------------------------------------------------------------
+// is_orthogonal
+// ---------------------------------------------------------------------------
+
+Eigen::Matrix3d sample_rotation(double angle)
+{
+    return Eigen::AngleAxisd(angle, Eigen::Vector3d(1.0, 2.0, 3.0).normalized())
+        .toRotationMatrix();
+}
+
+TEST(IsOrthogonal, AcceptsTheIdentity)
+{
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix3d::Identity(), 1e-12));
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix2d::Identity(), 1e-12));
+    EXPECT_TRUE(is_orthogonal(Eigen::MatrixXd::Identity(7, 7), 1e-12));
+}
+
+TEST(IsOrthogonal, AcceptsRotations)
+{
+    for (double angle : {-2.3, -0.5, 0.25, 1.1, 3.0})
+    {
+        EXPECT_TRUE(is_orthogonal(sample_rotation(angle), 1e-12))
+            << "angle " << angle;
+    }
+}
+
+// Orthogonality fixes the determinant only up to sign, so reflections pass.
+TEST(IsOrthogonal, AcceptsReflections)
+{
+    Eigen::Matrix3d reflection = Eigen::Matrix3d::Identity();
+    reflection(2, 2) = -1.0;
+
+    ASSERT_NEAR(reflection.determinant(), -1.0, kTol);
+    EXPECT_TRUE(is_orthogonal(reflection, 1e-12));
+}
+
+TEST(IsOrthogonal, AcceptsPermutationMatrices)
+{
+    Eigen::Matrix3d permutation;
+    permutation << 0, 1, 0,
+                   0, 0, 1,
+                   1, 0, 0;
+
+    EXPECT_TRUE(is_orthogonal(permutation, 1e-12));
+}
+
+TEST(IsOrthogonal, RejectsScaledIdentities)
+{
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix3d(2.0 * Eigen::Matrix3d::Identity()), 1e-12));
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix3d(0.5 * Eigen::Matrix3d::Identity()), 1e-12));
+}
+
+TEST(IsOrthogonal, RejectsTheZeroMatrix)
+{
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix3d::Zero(), 1e-12));
+}
+
+TEST(IsOrthogonal, RejectsASingularMatrix)
+{
+    Eigen::Matrix3d singular = sample_rotation(0.6);
+    singular.col(2) = singular.col(1);
+
+    EXPECT_FALSE(is_orthogonal(singular, 1e-12));
+}
+
+TEST(IsOrthogonal, RejectsAGeneralMatrix)
+{
+    Eigen::Matrix3d general;
+    general << 1, 2, 3,
+               4, 5, 6,
+               7, 8, 10;
+
+    EXPECT_FALSE(is_orthogonal(general, 1e-12));
+}
+
+// The columns must be orthogonal to each other, not merely of unit length.
+TEST(IsOrthogonal, RejectsUnitColumnsThatAreNotMutuallyOrthogonal)
+{
+    Eigen::Matrix3d matrix;
+    matrix.col(0) = Eigen::Vector3d(1.0, 0.0, 0.0);
+    matrix.col(1) = Eigen::Vector3d(1.0, 1.0, 0.0).normalized();
+    matrix.col(2) = Eigen::Vector3d(0.0, 0.0, 1.0);
+
+    // Every column has unit length, yet the matrix is not orthogonal.
+    for (Eigen::Index i = 0; i < 3; ++i)
+    {
+        ASSERT_TRUE(is_unit_vector(matrix.col(i), 1e-12)) << "column " << i;
+    }
+    EXPECT_FALSE(is_orthogonal(matrix, 1e-12));
+}
+
+TEST(IsOrthogonal, ToleranceControlsHowMuchDriftIsAccepted)
+{
+    Eigen::Matrix3d perturbed = sample_rotation(0.8);
+    perturbed(0, 0) += 1e-7;
+
+    EXPECT_TRUE(is_orthogonal(perturbed, 1e-3));
+    EXPECT_FALSE(is_orthogonal(perturbed, 1e-9));
+}
+
+TEST(IsOrthogonal, NegativeToleranceAlwaysFalse)
+{
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix3d::Identity(), -1e-12));
+}
+
+TEST(IsOrthogonal, HandlesSingleElementMatrices)
+{
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix<double, 1, 1>::Constant(1.0), 1e-12));
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix<double, 1, 1>::Constant(-1.0), 1e-12));
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix<double, 1, 1>::Constant(2.0), 1e-12));
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix<double, 1, 1>::Constant(0.0), 1e-12));
+}
+
+// A zero-by-zero matrix is vacuously orthogonal, and reducing over it would
+// otherwise trip Eigen's own empty-matrix assertion.
+TEST(IsOrthogonal, EmptyMatrixIsVacuouslyOrthogonal)
+{
+    EXPECT_TRUE(is_orthogonal(Eigen::MatrixXd(0, 0), 1e-12));
+}
+
+TEST(IsOrthogonal, WorksOnLargerMatrices)
+{
+    // A Householder reflector is orthogonal by construction.
+    Eigen::VectorXd axis = Eigen::VectorXd::Random(8).normalized();
+    const Eigen::MatrixXd reflector =
+        Eigen::MatrixXd::Identity(8, 8) - 2.0 * axis * axis.transpose();
+
+    EXPECT_TRUE(is_orthogonal(reflector, 1e-12));
+    EXPECT_NEAR(reflector.determinant(), -1.0, 1e-10);
+}
+
+TEST(IsOrthogonalDeathTest, RejectsNonSquareMatrices)
+{
+    EXPECT_ASSERT_FAILURE(is_orthogonal(Eigen::MatrixXd::Identity(3, 4), 1e-12));
+    EXPECT_ASSERT_FAILURE(is_orthogonal(Eigen::MatrixXd::Identity(4, 3), 1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// is_orthogonal: structural properties
+// ---------------------------------------------------------------------------
+
+// A matrix is orthogonal exactly when its transpose is.
+TEST(IsOrthogonal, HoldsForTheTransposeToo)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(1.3);
+
+    EXPECT_TRUE(is_orthogonal(rotation, 1e-12));
+    EXPECT_TRUE(is_orthogonal(rotation.transpose(), 1e-12));
+
+    Eigen::Matrix3d general;
+    general << 1, 2, 3,
+               4, 5, 6,
+               7, 8, 10;
+    EXPECT_FALSE(is_orthogonal(general, 1e-12));
+    EXPECT_FALSE(is_orthogonal(general.transpose(), 1e-12));
+}
+
+TEST(IsOrthogonal, IsClosedUnderMultiplication)
+{
+    const Eigen::Matrix3d first = sample_rotation(0.4);
+    const Eigen::Matrix3d second =
+        Eigen::AngleAxisd(1.2, Eigen::Vector3d::UnitX()).toRotationMatrix();
+
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix3d(first * second), 1e-12));
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix3d(second * first), 1e-12));
+}
+
+TEST(IsOrthogonal, IsClosedUnderInversion)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(2.1);
+
+    EXPECT_TRUE(is_orthogonal(Eigen::Matrix3d(rotation.inverse()), 1e-12));
+}
+
+// The rows of an orthogonal matrix are unit vectors, which ties the check to
+// the vector-level predicate.
+TEST(IsOrthogonal, ImpliesUnitRowsAndColumns)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(0.9);
+    ASSERT_TRUE(is_orthogonal(rotation, 1e-12));
+
+    for (Eigen::Index i = 0; i < 3; ++i)
+    {
+        EXPECT_TRUE(is_unit_vector(rotation.row(i), 1e-12)) << "row " << i;
+        EXPECT_TRUE(is_unit_vector(rotation.col(i), 1e-12)) << "column " << i;
+    }
+    EXPECT_TRUE(Near(row_norms(rotation), Eigen::Vector3d::Ones(), 1e-12));
+}
+
+// Every matrix the library's own rotation helper produces must pass.
+TEST(IsOrthogonal, AcceptsEveryRotationMatrixTheLibraryBuilds)
+{
+    const Eigen::Vector3d axis(1.0, -2.0, 0.5);
+    for (double scale : {-3.0, -0.25, 0.5, 1.0, 4.0})
+    {
+        EXPECT_TRUE(is_orthogonal(rotation_matrix(scale, axis), 1e-12))
+            << "scale " << scale;
+    }
+    EXPECT_TRUE(is_orthogonal(
+        rotation_matrix(0.5 * rotation_tolerance, axis), 1e-12));
+}
+
+// An orthogonal matrix preserves lengths, checked through the row-wise norms.
+TEST(IsOrthogonal, PreservesRowNormsWhenApplied)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(1.7);
+    ASSERT_TRUE(is_orthogonal(rotation, 1e-12));
+
+    const Eigen::Matrix<double, Eigen::Dynamic, 3> stack =
+        Eigen::Matrix<double, Eigen::Dynamic, 3>::Random(6, 3);
+    const Eigen::Matrix<double, Eigen::Dynamic, 3> rotated =
+        stack * rotation.transpose();
+
+    EXPECT_TRUE(Near(row_norms(rotated), row_norms(stack), 1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// is_orthogonal: scalar types and expression inputs
+// ---------------------------------------------------------------------------
+
+TEST(IsOrthogonalTypes, WorksOnFloatScalars)
+{
+    const Eigen::Matrix3f rotation =
+        Eigen::AngleAxisf(0.4f, Eigen::Vector3f::UnitZ()).toRotationMatrix();
+
+    EXPECT_TRUE(is_orthogonal(rotation, 1e-6f));
+    EXPECT_FALSE(is_orthogonal(Eigen::Matrix3f(2.0f * rotation), 1e-6f));
+}
+
+// The conjugate transpose is used, so this tests the unitary condition. The
+// matrix below satisfies A^H A = I but not A^T A = I, which distinguishes the
+// two conventions.
+TEST(IsOrthogonalTypes, ComplexUsesTheUnitaryCondition)
+{
+    using Complex = std::complex<double>;
+    Eigen::Matrix2cd matrix;
+    matrix << Complex(0.0, 0.0), Complex(0.0, 1.0),
+              Complex(0.0, 1.0), Complex(0.0, 0.0);
+
+    // Unitary, so accepted.
+    EXPECT_TRUE(is_orthogonal(matrix, 1e-12));
+
+    // The literal transpose form would have failed here.
+    const Eigen::Matrix2cd transpose_form = matrix.transpose() * matrix;
+    EXPECT_GT((transpose_form - Eigen::Matrix2cd::Identity()).cwiseAbs().maxCoeff(),
+              1.0);
+}
+
+TEST(IsOrthogonalTypes, ComplexRejectsANonUnitaryMatrix)
+{
+    using Complex = std::complex<double>;
+    Eigen::Matrix2cd matrix;
+    matrix << Complex(1.0, 1.0), Complex(0.0, 0.0),
+              Complex(0.0, 0.0), Complex(1.0, 0.0);
+
+    EXPECT_FALSE(is_orthogonal(matrix, 1e-12));
+}
+
+TEST(IsOrthogonalExpressions, AcceptsBlockExpressions)
+{
+    Eigen::MatrixXd big = Eigen::MatrixXd::Random(5, 5);
+    big.topLeftCorner(3, 3) = sample_rotation(0.55);
+
+    EXPECT_TRUE(is_orthogonal(big.topLeftCorner(3, 3), 1e-12));
+    EXPECT_FALSE(is_orthogonal(big.bottomRightCorner(2, 2), 1e-12));
+}
+
+TEST(IsOrthogonalExpressions, AcceptsProductExpressions)
+{
+    const Eigen::Matrix3d first = sample_rotation(0.4);
+    const Eigen::Matrix3d second =
+        Eigen::AngleAxisd(0.9, Eigen::Vector3d::UnitY()).toRotationMatrix();
+
+    EXPECT_TRUE(is_orthogonal(first * second, 1e-12));
+    EXPECT_FALSE(is_orthogonal(first * 2.0, 1e-12));
+}
+
+TEST(IsOrthogonalExpressions, AcceptsTransposeAndAdjointExpressions)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(1.0);
+
+    EXPECT_TRUE(is_orthogonal(rotation.transpose(), 1e-12));
+    EXPECT_TRUE(is_orthogonal(rotation.adjoint(), 1e-12));
+}
+
+TEST(IsOrthogonalExpressions, AcceptsMaps)
+{
+    const Eigen::Matrix3d rotation = sample_rotation(0.3);
+    const Eigen::Map<const Eigen::Matrix3d> mapped(rotation.data());
+
+    EXPECT_TRUE(is_orthogonal(mapped, 1e-12));
+}
+
+TEST(IsOrthogonalExpressions, DoesNotModifyItsInput)
+{
+    Eigen::Matrix3d rotation = sample_rotation(0.65);
+    const Eigen::Matrix3d before = rotation;
+
+    const bool result = is_orthogonal(rotation, 1e-12);
+    (void)result;
+
+    EXPECT_TRUE(Near(rotation, before));
+}
+
+// Every frame in a stack should be orthogonal, which is the usual reason to
+// reach for this check.
+TEST(IsOrthogonal, ValidatesAStackOfFrames)
+{
+    std::vector<Eigen::Matrix3d> frames;
+    for (int i = 0; i < 4; ++i)
+    {
+        frames.push_back(sample_rotation(0.4 * (i + 1)));
+    }
+
+    for (std::size_t i = 0; i < frames.size(); ++i)
+    {
+        EXPECT_TRUE(is_orthogonal(frames[i], 1e-12)) << "frame " << i;
+    }
+
+    frames[2](0, 0) += 0.1;
+    EXPECT_FALSE(is_orthogonal(frames[2], 1e-12));
+}
+
 }  // namespace
 }  // namespace cosserat::math

@@ -45,14 +45,16 @@ struct RodStub
     Vector3DStack m_torques;
 
     std::uint64_t num_elements() const { return n_elements; }
-    const Eigen::VectorXd& mass() const { return m_mass; }
+    const Eigen::VectorXd& masses() const { return m_mass; }
     const Eigen::VectorXd& rest_lengths() const { return m_rest_lengths; }
     const Eigen::VectorXd& dilatations() const { return m_dilatations; }
-    const Matrix3DStack& inv_mass_second_moments() const { return m_inv_moments; }
-    Vector3DStack& velocities() { return m_velocities; }
-    Vector3DStack& angular_velocities() { return m_angular_velocities; }
-    Vector3DStack& external_forces() { return m_forces; }
-    Vector3DStack& external_torques() { return m_torques; }
+    const Matrix3DStack& inv_mass_2nd_moments() const { return m_inv_moments; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
+    Vector3DStack& mutable_angular_velocities() { return m_angular_velocities; }
+    Vector3DStack& mutable_external_forces() { return m_forces; }
+    Vector3DStack& mutable_external_torques() { return m_torques; }
+    const Vector3DStack& velocities() {return m_velocities;}
+    const Vector3DStack& angular_velocities() {return m_angular_velocities;}
 };
 
 // Rates only: no inertia, no rest lengths, no external accumulators.
@@ -63,8 +65,8 @@ struct RatesOnlySystem
     Vector3DStack m_angular_velocities = Vector3DStack::Zero(4, 3);
 
     std::uint64_t num_elements() const { return n_elements; }
-    Vector3DStack& velocities() { return m_velocities; }
-    Vector3DStack& angular_velocities() { return m_angular_velocities; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
+    Vector3DStack& mutable_angular_velocities() { return m_angular_velocities; }
 };
 
 static_assert(DampableSystem<RodStub>);

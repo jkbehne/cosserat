@@ -50,8 +50,8 @@ template<typename T>
 concept DampableSystem = requires(T sys)
 {
     {sys.num_elements()} -> std::convertible_to<std::uint64_t>;
-    {sys.velocities()} -> std::same_as<Vector3DStack&>;
-    {sys.angular_velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_angular_velocities()} -> std::same_as<Vector3DStack&>;
 };
 
 /**
@@ -64,8 +64,8 @@ concept DampableSystem = requires(T sys)
 template<typename T>
 concept InertiallyDampableSystem = DampableSystem<T> and requires(T sys)
 {
-    {sys.mass()} -> std::same_as<const Eigen::VectorXd&>;
-    {sys.inv_mass_second_moments()} -> std::same_as<const Matrix3DStack&>;
+    {sys.masses()} -> std::same_as<const Eigen::VectorXd&>;
+    {sys.inv_mass_2nd_moments()} -> std::same_as<const Matrix3DStack&>;
     {sys.dilatations()} -> std::same_as<const Eigen::VectorXd&>;
 };
 
@@ -79,8 +79,10 @@ template<typename T>
 concept RayleighDampableSystem = DampableSystem<T> and requires(T sys)
 {
     {sys.rest_lengths()} -> std::same_as<const Eigen::VectorXd&>;
-    {sys.external_forces()} -> std::same_as<Vector3DStack&>;
-    {sys.external_torques()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_external_forces()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_external_torques()} -> std::same_as<Vector3DStack&>;
+    {sys.velocities()} -> std::same_as<const Vector3DStack&>;
+    {sys.angular_velocities()} -> std::same_as<const Vector3DStack&>;
 };
 
 /**
@@ -143,8 +145,8 @@ public: // Methods
     template<DampableSystem SystemType>
     void dampen_rates(SystemType& system, double) const
     {
-        system.velocities() *= m_coefficient;
-        system.angular_velocities() *= m_coefficient;
+        system.mutable_velocities() *= m_coefficient;
+        system.mutable_angular_velocities() *= m_coefficient;
     }
 
     /** @brief The damping constant supplied at construction. */
@@ -221,9 +223,9 @@ public: // Methods
     template<InertiallyDampableSystem SystemType>
     void dampen_rates(SystemType& system, double) const
     {
-        Vector3DStack& velocities = system.velocities();
-        Vector3DStack& omegas = system.angular_velocities();
-        const Eigen::VectorXd& nodal_mass = system.mass();
+        Vector3DStack& velocities = system.mutable_velocities();
+        Vector3DStack& omegas = system.mutable_angular_velocities();
+        const Eigen::VectorXd& nodal_mass = system.masses();
         const Eigen::VectorXd& dilatations = system.dilatations();
 
         utils::nice_assert(
@@ -239,7 +241,7 @@ public: // Methods
             nodal_mass, m_translational_damping_constant, m_time_step
         );
         const Vector3DStack rotational = rotational_coefficients(
-            system.inv_mass_second_moments(),
+            system.inv_mass_2nd_moments(),
             m_rotational_damping_constant,
             m_time_step
         );
@@ -318,7 +320,7 @@ public: // Methods
     template<InertiallyDampableSystem SystemType>
     void dampen_rates(SystemType& system, double) const
     {
-        Vector3DStack& omegas = system.angular_velocities();
+        Vector3DStack& omegas = system.mutable_angular_velocities();
         const Eigen::VectorXd& dilatations = system.dilatations();
 
         utils::nice_assert(
@@ -327,8 +329,8 @@ public: // Methods
         );
 
         const Vector3DStack rotational = rotational_coefficients(
-            system.mass(),
-            system.inv_mass_second_moments(),
+            system.masses(),
+            system.inv_mass_2nd_moments(),
             m_damping_constant,
             m_time_step
         );
@@ -337,7 +339,7 @@ public: // Methods
             "Expected one inertia entry per angular velocity row"
         );
 
-        system.velocities() *= m_translational_coefficient;
+        system.mutable_velocities() *= m_translational_coefficient;
         for (Eigen::Index idx = 0; idx < omegas.rows(); ++idx)
         {
             omegas.row(idx).array() *=
@@ -427,7 +429,7 @@ public: // Methods
         );
         const double nu = damping_at(time) * average_element_length(rest_lengths);
 
-        Vector3DStack& forces = system.external_forces();
+        Vector3DStack& forces = system.mutable_external_forces();
         const Vector3DStack& velocities = system.velocities();
         utils::nice_assert(forces.rows() > 0, "Need at least one node");
         utils::nice_assert(
@@ -440,7 +442,7 @@ public: // Methods
         const Eigen::Index last = forces.rows() - 1;
         forces.row(last) += (1.0 - endpoint_factor) * nu * velocities.row(last);
 
-        Vector3DStack& torques = system.external_torques();
+        Vector3DStack& torques = system.mutable_external_torques();
         const Vector3DStack& omegas = system.angular_velocities();
         utils::nice_assert(
             torques.rows() == omegas.rows(),
@@ -506,8 +508,8 @@ public: // Methods
     template<DampableSystem SystemType>
     void dampen_rates(SystemType& system, double)
     {
-        Vector3DStack& velocities = system.velocities();
-        Vector3DStack& omegas = system.angular_velocities();
+        Vector3DStack& velocities = system.mutable_velocities();
+        Vector3DStack& omegas = system.mutable_angular_velocities();
 
         if (m_velocity_filter_term.rows() != velocities.rows())
         {

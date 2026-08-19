@@ -5,25 +5,31 @@
 #include <unordered_map>
 #include <variant>
 
+#include "physics/bodies.hpp"
 #include "physics/constraints.hpp"
 #include "physics/damping.hpp"
 #include "physics/forces.hpp"
+#include "physics/joints.hpp"
+
+#include "simulation/diagnostics.hpp"
 
 #include "utils/assertions.hpp"
-#include "utils/basic_concepts.hpp"
 
 namespace cosserat::simulation {
 
-using VariantConcept = utils::Variant;
-
-template<
-    VariantConcept BodyVariant,
-    VariantConcept JointVariant,
-    VariantConcept DiagnosticsVariant
->
 class SimulationGraph
 {
 public: // Types
+    using ForceVariant = physics::ForceTorqueVariant;
+    using DampeningVariant = physics::DamperVariant;
+    using ConstraintVariant = physics::ConstraintVariant;
+    using JointVariant = physics::JointVariant;
+    using BodyVariant = physics::BodyVariant;
+
+    using ConstraintVector = std::vector<ConstraintVariant>;
+    using ForceVector = std::vector<ForceVariant>;
+    using DampeningVector = std::vector<DampeningVariant>;
+    using DiagnosticVector = std::vector<DiagnosticVariant>;
     struct JointEdge
     {
         public: // Members
@@ -40,22 +46,14 @@ public: // Types
                 body2_name(name2),
                 joint(std::move(joint_)) {}
     };
-    using ForceVariant = physics::ForceTorqueVariant;
-    using DampeningVariant = physics::DamperVariant;
-    using ContraintVariant = physics::ConstraintVariant;
-
-    using JointVector = std::vector<JointEdge>;
-    using ConstraintVector = std::vector<ConstraintVariant>;
-    using ForceVector = std::vector<ForceVariant>;
-    using DampeningVector = std::vector<DampeningVariant>;
-    using DiagnosticsVector = std::vector<DiagnosticsVariant>;
+     using JointVector = std::vector<JointEdge>;
 
 private: // Members
     std::unordered_map<std::string, BodyVariant> m_bodies;
     std::unordered_map<std::string, ConstraintVector> m_constraints;
     std::unordered_map<std::string, ForceVector> m_forces;
     std::unordered_map<std::string, DampeningVector> m_dampers;
-    std::unordered_map<std::string, DiagnosticsVector> m_diagnostics;
+    std::unordered_map<std::string, DiagnosticVector> m_diagnostics;
     JointVector m_joints;
 
 public: // Methods

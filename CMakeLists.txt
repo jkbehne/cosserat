@@ -400,6 +400,38 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_rods physics/test/test_rods.cpp)
+    target_link_libraries(test_rods
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_rods PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_rods
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_rigid_body physics/test/test_rigid_body.cpp)
+    target_link_libraries(test_rigid_body
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_rigid_body PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_rigid_body
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_solver simulation/test/test_solver.cpp)
     target_link_libraries(test_solver
         PRIVATE
@@ -410,6 +442,22 @@ if(BUILD_TESTING)
     )
     target_compile_options(test_solver PRIVATE ${PROJECT_STRICT_WARNINGS})
     gtest_discover_tests(test_solver
+        PROPERTIES
+            LABELS simulation
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_diagnostics simulation/test/test_diagnostics.cpp)
+    target_link_libraries(test_diagnostics
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_diagnostics PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_diagnostics
         PROPERTIES
             LABELS simulation
         DISCOVERY_TIMEOUT 30

@@ -114,6 +114,73 @@ bool is_unit_vector(const Eigen::MatrixBase<Derived>& vec,
     return std::abs(vec.norm() - Real(1)) < tolerance;
 }
 
+/**
+ * @brief Reports whether a square matrix is orthogonal to within a tolerance.
+ *
+ * Forms @f$ A^{*} A @f$ and measures how far it sits from the identity,
+ * comparing the largest absolute entry of the difference against @p tolerance
+ * with a strict less-than. A deviation exactly equal to the tolerance is
+ * therefore rejected, matching @ref is_unit_vector.
+ *
+ * @f[ \max_{ij} \left| \left(A^{*} A - I\right)_{ij} \right| < \mathrm{tolerance} @f]
+ *
+ * Both reflections and rotations pass, since orthogonality constrains the
+ * determinant only to plus or minus one. Use the determinant separately if a
+ * proper rotation is required.
+ *
+ * Accepts any square matrix expression, including blocks, maps and unevaluated
+ * arithmetic. The argument is bound once through @c Eigen::Ref, so a computed
+ * expression is evaluated a single time rather than once for each side of the
+ * product.
+ *
+ * @tparam Derived Eigen expression type.
+ * @param matrix Square matrix to test.
+ * @param tolerance Largest accepted departure from the identity, measured
+ *        entry by entry.
+ * @return True when the matrix is orthogonal to within @p tolerance.
+ *
+ * @note For a complex scalar this uses the conjugate transpose, so it tests
+ *       the unitary condition @f$ A^{H} A = I @f$ rather than the literal
+ *       @f$ A^{T} A = I @f$. The two coincide for real scalars, and the
+ *       unitary form is the one that characterises a norm-preserving map.
+ *
+ * @note A negative tolerance can never be satisfied, so the result is then
+ *       always false. A zero-by-zero matrix is reported as orthogonal, being
+ *       vacuously so.
+ */
+template<typename Derived>
+bool is_orthogonal(const Eigen::MatrixBase<Derived>& matrix,
+                   typename Derived::RealScalar tolerance)
+{
+    using ScalarType = typename Derived::Scalar;
+
+    // Cast to int: the two dimensions carry distinct unnamed enum types, and
+    // comparing them directly draws -Wenum-compare.
+    static_assert(
+        int(Derived::RowsAtCompileTime) == int(Eigen::Dynamic)
+            or int(Derived::ColsAtCompileTime) == int(Eigen::Dynamic)
+            or int(Derived::RowsAtCompileTime) == int(Derived::ColsAtCompileTime),
+        "is_orthogonal requires a square matrix"
+    );
+
+    utils::nice_assert(
+        matrix.rows() == matrix.cols(), "is_orthogonal requires a square matrix"
+    );
+
+    // An empty matrix is vacuously orthogonal, and reducing over it would
+    // otherwise trip Eigen's own empty-matrix assertion.
+    if (matrix.rows() == 0) return true;
+
+    // Bound once so the expression is not evaluated separately for each side
+    // of the product below.
+    const Eigen::Ref<const typename Derived::PlainObject> bound(matrix.derived());
+
+    auto residual = (bound.adjoint() * bound).eval();
+    residual.diagonal().array() -= ScalarType(1);
+
+    return residual.cwiseAbs().maxCoeff() < tolerance;
+}
+
 namespace detail {
 
 /**

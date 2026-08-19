@@ -53,8 +53,8 @@ namespace cosserat::physics {
 template<typename T>
 concept PositionConstrainableSystem = requires(T sys)
 {
-    {sys.positions()} -> std::same_as<Vector3DStack&>;
-    {sys.velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_positions()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_velocities()} -> std::same_as<Vector3DStack&>;
 };
 
 /**
@@ -68,7 +68,7 @@ template<typename T>
 concept DirectorConstrainableSystem = requires(T sys)
 {
     {sys.mutable_frames()} -> std::same_as<Matrix3DStack&>;
-    {sys.angular_velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_angular_velocities()} -> std::same_as<Vector3DStack&>;
 };
 
 /** @brief A system offering both translational and rotational constraint. */
@@ -137,7 +137,7 @@ public: // Methods
     template<ConstrainableSystem SystemType>
     void constrain_values(SystemType& system, double) const
     {
-        Vector3DStack& positions = system.positions();
+        Vector3DStack& positions = system.mutable_positions();
         Matrix3DStack& directors = system.mutable_frames();
         utils::nice_assert(positions.rows() > 0, "Need at least one node");
         utils::nice_assert(not directors.empty(), "Need at least one element");
@@ -154,8 +154,8 @@ public: // Methods
     template<ConstrainableSystem SystemType>
     void constrain_rates(SystemType& system, double) const
     {
-        Vector3DStack& velocities = system.velocities();
-        Vector3DStack& omegas = system.angular_velocities();
+        Vector3DStack& velocities = system.mutable_velocities();
+        Vector3DStack& omegas = system.mutable_angular_velocities();
         utils::nice_assert(velocities.rows() > 0, "Need at least one node");
         utils::nice_assert(omegas.rows() > 0, "Need at least one element");
 
@@ -237,7 +237,7 @@ public: // Methods
     {
         if (m_position_indices.empty()) return;
 
-        Vector3DStack& positions = system.positions();
+        Vector3DStack& positions = system.mutable_positions();
         for (std::size_t entry = 0; entry < m_position_indices.size(); ++entry)
         {
             const Eigen::Index idx =
@@ -268,7 +268,7 @@ public: // Methods
     {
         if (not m_position_indices.empty())
         {
-            Vector3DStack& velocities = system.velocities();
+            Vector3DStack& velocities = system.mutable_velocities();
             for (const std::int64_t requested : m_position_indices)
             {
                 const Eigen::Index idx =
@@ -281,7 +281,7 @@ public: // Methods
         if (not m_director_indices.empty())
         {
             Matrix3DStack& directors = system.mutable_frames();
-            Vector3DStack& omegas = system.angular_velocities();
+            Vector3DStack& omegas = system.mutable_angular_velocities();
             utils::nice_assert(
                 static_cast<Eigen::Index>(directors.size()) == omegas.rows(),
                 "Expected one director per angular velocity row"
@@ -362,7 +362,7 @@ public: // Methods
     {
         if (not m_position_indices.empty())
         {
-            Vector3DStack& positions = system.positions();
+            Vector3DStack& positions = system.mutable_positions();
             for (std::size_t entry = 0; entry < m_position_indices.size(); ++entry)
             {
                 const Eigen::Index idx =
@@ -396,7 +396,7 @@ public: // Methods
     {
         if (not m_position_indices.empty())
         {
-            Vector3DStack& velocities = system.velocities();
+            Vector3DStack& velocities = system.mutable_velocities();
             for (const std::int64_t requested : m_position_indices)
             {
                 velocities.row(resolve_index(requested, velocities.rows()))
@@ -406,7 +406,7 @@ public: // Methods
 
         if (not m_director_indices.empty())
         {
-            Vector3DStack& omegas = system.angular_velocities();
+            Vector3DStack& omegas = system.mutable_angular_velocities();
             for (const std::int64_t requested : m_director_indices)
             {
                 omegas.row(resolve_index(requested, omegas.rows())).setZero();
@@ -493,7 +493,7 @@ public: // Methods
         utils::nice_assert(std::isfinite(time), "Expected time to be finite");
         if (time <= m_twisting_time) return;
 
-        Vector3DStack& positions = system.positions();
+        Vector3DStack& positions = system.mutable_positions();
         Matrix3DStack& directors = system.mutable_frames();
         utils::nice_assert(positions.rows() > 0, "Need at least one node");
         utils::nice_assert(not directors.empty(), "Need at least one element");
@@ -515,8 +515,8 @@ public: // Methods
     {
         utils::nice_assert(std::isfinite(time), "Expected time to be finite");
 
-        Vector3DStack& velocities = system.velocities();
-        Vector3DStack& omegas = system.angular_velocities();
+        Vector3DStack& velocities = system.mutable_velocities();
+        Vector3DStack& omegas = system.mutable_angular_velocities();
         utils::nice_assert(velocities.rows() > 0, "Need at least one node");
         utils::nice_assert(omegas.rows() > 0, "Need at least one element");
 

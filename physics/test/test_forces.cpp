@@ -41,10 +41,10 @@ struct TestSystem
     Matrix3DStack m_frames;
 
     std::uint64_t num_elements() const { return n_elements; }
-    const Eigen::VectorXd& mass() const { return m_mass; }
-    Vector3DStack& external_forces() { return m_forces; }
+    const Eigen::VectorXd& masses() const { return m_mass; }
+    Vector3DStack& mutable_external_forces() { return m_forces; }
     const Matrix3DStack& frames() const { return m_frames; }
-    Vector3DStack& external_torques() { return m_torques; }
+    Vector3DStack& mutable_external_torques() { return m_torques; }
 };
 
 static_assert(ForceableSystem<TestSystem>);
@@ -756,8 +756,8 @@ struct ForceOnlySystem
     Vector3DStack m_forces = Vector3DStack::Zero(5, 3);
 
     std::uint64_t num_elements() const { return n_elements; }
-    const Eigen::VectorXd& mass() const { return m_mass; }
-    Vector3DStack& external_forces() { return m_forces; }
+    const Eigen::VectorXd& masses() const { return m_mass; }
+    Vector3DStack& mutable_external_forces() { return m_forces; }
 };
 
 // Satisfies TorqueableSystem only.
@@ -769,7 +769,7 @@ struct TorqueOnlySystem
 
     std::uint64_t num_elements() const { return n_elements; }
     const Matrix3DStack& frames() const { return m_frames; }
-    Vector3DStack& external_torques() { return m_torques; }
+    Vector3DStack& mutable_external_torques() { return m_torques; }
 };
 
 static_assert(ForceableSystem<ForceOnlySystem>);

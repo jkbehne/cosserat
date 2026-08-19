@@ -44,9 +44,9 @@ struct RodStub
     Vector3DStack m_angular_velocities;
     Matrix3DStack m_directors;
 
-    Vector3DStack& positions() { return m_positions; }
-    Vector3DStack& velocities() { return m_velocities; }
-    Vector3DStack& angular_velocities() { return m_angular_velocities; }
+    Vector3DStack& mutable_positions() { return m_positions; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
+    Vector3DStack& mutable_angular_velocities() { return m_angular_velocities; }
     Matrix3DStack& mutable_frames() { return m_directors; }
 };
 
@@ -56,8 +56,8 @@ struct PositionOnlySystem
     Vector3DStack m_positions = Vector3DStack::Zero(5, 3);
     Vector3DStack m_velocities = Vector3DStack::Zero(5, 3);
 
-    Vector3DStack& positions() { return m_positions; }
-    Vector3DStack& velocities() { return m_velocities; }
+    Vector3DStack& mutable_positions() { return m_positions; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
 };
 
 static_assert(PositionConstrainableSystem<RodStub>);

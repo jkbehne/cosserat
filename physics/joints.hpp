@@ -56,9 +56,9 @@ namespace cosserat::physics {
 template<typename T>
 concept ForceJointableSystem = requires(T sys)
 {
-    {sys.positions()} -> std::same_as<Vector3DStack&>;
-    {sys.velocities()} -> std::same_as<Vector3DStack&>;
-    {sys.external_forces()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_positions()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_external_forces()} -> std::same_as<Vector3DStack&>;
 };
 
 /**
@@ -72,8 +72,8 @@ template<typename T>
 concept TorqueJointableSystem = requires(T sys)
 {
     {sys.frames()} -> std::same_as<const Matrix3DStack&>;
-    {sys.angular_velocities()} -> std::same_as<Vector3DStack&>;
-    {sys.external_torques()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_angular_velocities()} -> std::same_as<Vector3DStack&>;
+    {sys.mutable_external_torques()} -> std::same_as<Vector3DStack&>;
 };
 
 /** @brief A system that can be connected by any of the joints here. */
@@ -142,10 +142,10 @@ public: // Methods
         double
     ) const
     {
-        Vector3DStack& positions_one = system_one.positions();
-        Vector3DStack& positions_two = system_two.positions();
-        Vector3DStack& forces_one = system_one.external_forces();
-        Vector3DStack& forces_two = system_two.external_forces();
+        Vector3DStack& positions_one = system_one.mutable_positions();
+        Vector3DStack& positions_two = system_two.mutable_positions();
+        Vector3DStack& forces_one = system_one.mutable_external_forces();
+        Vector3DStack& forces_two = system_two.mutable_external_forces();
 
         utils::nice_assert(
             forces_one.rows() == positions_one.rows()
@@ -159,7 +159,7 @@ public: // Methods
         const Eigen::RowVector3d separation =
             positions_two.row(two) - positions_one.row(one);
         const Eigen::RowVector3d relative_velocity =
-            system_two.velocities().row(two) - system_one.velocities().row(one);
+            system_two.mutable_velocities().row(two) - system_one.mutable_velocities().row(one);
 
         const Eigen::RowVector3d contact_force =
             m_stiffness * separation + m_damping * relative_velocity;
@@ -269,8 +269,8 @@ public: // Methods
     {
         const Matrix3DStack& frames_one = system_one.frames();
         const Matrix3DStack& frames_two = system_two.frames();
-        Vector3DStack& torques_one = system_one.external_torques();
-        Vector3DStack& torques_two = system_two.external_torques();
+        Vector3DStack& torques_one = system_one.mutable_external_torques();
+        Vector3DStack& torques_two = system_two.mutable_external_torques();
 
         utils::nice_assert(
             static_cast<Eigen::Index>(frames_one.size()) == torques_one.rows()
@@ -391,8 +391,8 @@ public: // Methods
     {
         const Matrix3DStack& frames_one = system_one.frames();
         const Matrix3DStack& frames_two = system_two.frames();
-        Vector3DStack& torques_one = system_one.external_torques();
-        Vector3DStack& torques_two = system_two.external_torques();
+        Vector3DStack& torques_one = system_one.mutable_external_torques();
+        Vector3DStack& torques_two = system_two.mutable_external_torques();
 
         utils::nice_assert(
             static_cast<Eigen::Index>(frames_one.size()) == torques_one.rows()
@@ -422,9 +422,9 @@ public: // Methods
         // inertial frame so the two material frames do not bias it.
         const Eigen::Vector3d deviation_omega =
             director_two.transpose()
-                * system_two.angular_velocities().row(two).transpose()
+                * system_two.mutable_angular_velocities().row(two).transpose()
             - director_one.transpose()
-                * system_one.angular_velocities().row(one).transpose();
+                * system_one.mutable_angular_velocities().row(one).transpose();
 
         const Eigen::Vector3d torque =
             m_rotational_stiffness * rotation_vector_inertial

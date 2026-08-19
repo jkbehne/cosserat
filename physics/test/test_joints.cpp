@@ -41,12 +41,12 @@ struct RodStub
     Vector3DStack m_torques;
     Matrix3DStack m_frames;
 
-    Vector3DStack& positions() { return m_positions; }
-    Vector3DStack& velocities() { return m_velocities; }
-    Vector3DStack& external_forces() { return m_forces; }
+    Vector3DStack& mutable_positions() { return m_positions; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
+    Vector3DStack& mutable_external_forces() { return m_forces; }
     const Matrix3DStack& frames() const { return m_frames; }
-    Vector3DStack& angular_velocities() { return m_angular_velocities; }
-    Vector3DStack& external_torques() { return m_torques; }
+    Vector3DStack& mutable_angular_velocities() { return m_angular_velocities; }
+    Vector3DStack& mutable_external_torques() { return m_torques; }
 };
 
 // Translation only: no frames, no angular velocities, no torques.
@@ -56,9 +56,9 @@ struct TranslationOnlySystem
     Vector3DStack m_velocities = Vector3DStack::Zero(4, 3);
     Vector3DStack m_forces = Vector3DStack::Zero(4, 3);
 
-    Vector3DStack& positions() { return m_positions; }
-    Vector3DStack& velocities() { return m_velocities; }
-    Vector3DStack& external_forces() { return m_forces; }
+    Vector3DStack& mutable_positions() { return m_positions; }
+    Vector3DStack& mutable_velocities() { return m_velocities; }
+    Vector3DStack& mutable_external_forces() { return m_forces; }
 };
 
 static_assert(ForceJointableSystem<RodStub>);
