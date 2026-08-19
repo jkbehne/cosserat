@@ -432,6 +432,22 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_body_rules physics/test/test_body_rules.cpp)
+    target_link_libraries(test_body_rules
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_body_rules PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_body_rules
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_solver simulation/test/test_solver.cpp)
     target_link_libraries(test_solver
         PRIVATE
