@@ -480,6 +480,38 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_minimum_distance physics/test/test_minimum_distance.cpp)
+    target_link_libraries(test_minimum_distance
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_minimum_distance PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_minimum_distance
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_contacts physics/test/test_contacts.cpp)
+    target_link_libraries(test_contacts
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_contacts PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_contacts
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_solver simulation/test/test_solver.cpp)
     target_link_libraries(test_solver
         PRIVATE
