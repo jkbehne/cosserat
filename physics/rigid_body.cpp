@@ -165,7 +165,7 @@ void RigidBody::update_accelerations(double, double)
     );
 }
 
-void RigidBody::zero_out_external_forces_and_torques()
+void RigidBody::zero_out_external_forces_and_torques(double)
 {
     m_external_forces = Vector3DStack::Zero(1, 3);
     m_external_torques = Vector3DStack::Zero(1, 3);

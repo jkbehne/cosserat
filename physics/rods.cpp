@@ -357,7 +357,7 @@ void CosseratRod::update_accelerations(double, double)
     m_angular_accelerations = product.array().colwise() * m_dilatations.array();
 }
 
-void CosseratRod::zero_out_external_forces_and_torques()
+void CosseratRod::zero_out_external_forces_and_torques(double)
 {
     m_external_forces = Vector3DStack::Zero(m_num_nodes, 3);
     m_external_torques = Vector3DStack::Zero(m_num_elements, 3);

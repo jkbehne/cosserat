@@ -183,7 +183,7 @@ TEST(BodyRuleCompatibility, ZeroingClearsLoadsAppliedThroughTheVariant)
     std::visit([&](auto& concrete) {
         apply_forces(gravity, concrete, 0.0);
         EXPECT_GT(concrete.external_forces().cwiseAbs().maxCoeff(), 0.0);
-        concrete.zero_out_external_forces_and_torques();
+        concrete.zero_out_external_forces_and_torques(0.0 /* time */);
         EXPECT_LT(concrete.external_forces().cwiseAbs().maxCoeff(), 1e-15);
     }, body);
 }

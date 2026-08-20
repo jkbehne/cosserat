@@ -67,12 +67,10 @@ std::filesystem::path BasePathManager::get_next_dir(
     // A NaN or infinite time would otherwise become a directory literally
     // named step_000000001_st_nan, created without complaint.
     nice_assert(std::isfinite(time), "Expected time to be a finite value");
-    // Beyond this the padding stops ordering the directories correctly, which
-    // is worth failing on rather than silently misordering the output.
-    nice_assert(
-        step <= max_step, "step exceeds the width the directory names reserve"
-    );
 
+    // A step wider than step_digits is written correctly; only the name-order
+    // sorting of those later directories degrades, which is not worth
+    // capping how long a simulation may run.
     const std::string step_folder =
         std::format("step_{:0{}d}_st_{:.3f}", step, step_digits, time);
 
@@ -87,15 +85,39 @@ const std::filesystem::path& BasePathManager::base_path() const {return m_base_p
 
 const std::string& BasePathManager::body_name() const {return m_body_name;}
 
+StepSchedule::StepSchedule(std::uint64_t steps_to_skip)
+    : m_steps_to_skip(steps_to_skip)
+{
+    // Zero would never fire and would divide by zero below.
+    nice_assert(m_steps_to_skip > 0, "steps_to_skip must be at least one");
+}
+
+bool StepSchedule::should_write(std::uint64_t step) const
+{
+    return step % m_steps_to_skip == 0;
+}
+
+std::uint64_t StepSchedule::steps_to_skip() const {return m_steps_to_skip;}
+
 BasicDiagnostics::BasicDiagnostics(
-    std::filesystem::path base_path, std::string body_name
-) : m_manager(std::move(base_path), std::move(body_name)) {}
+    std::filesystem::path base_path,
+    std::string body_name,
+    std::uint64_t steps_to_skip
+) : m_manager(std::move(base_path), std::move(body_name)),
+    m_schedule(steps_to_skip) {}
 
 const BasePathManager& BasicDiagnostics::manager() const {return m_manager;}
 
+const StepSchedule& BasicDiagnostics::schedule() const {return m_schedule;}
+
 DebugDiagnostics::DebugDiagnostics(
-    std::filesystem::path base_path, std::string body_name
-) : m_manager(std::move(base_path), std::move(body_name)) {}
+    std::filesystem::path base_path,
+    std::string body_name,
+    std::uint64_t steps_to_skip
+) : m_manager(std::move(base_path), std::move(body_name)),
+    m_schedule(steps_to_skip) {}
 
 const BasePathManager& DebugDiagnostics::manager() const {return m_manager;}
+
+const StepSchedule& DebugDiagnostics::schedule() const {return m_schedule;}
 } // End namespace cosserat::simulation

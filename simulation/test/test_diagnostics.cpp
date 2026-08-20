@@ -143,8 +143,7 @@ TEST_F(DiagnosticsTest, StepNumbersAreZeroPadded)
               "step_000000000_st_0.000");
     EXPECT_EQ(manager.get_next_dir(0.0, 7).parent_path().filename(),
               "step_000000007_st_0.000");
-    EXPECT_EQ(manager.get_next_dir(0.0, BasePathManager::max_step)
-                  .parent_path().filename(),
+    EXPECT_EQ(manager.get_next_dir(0.0, 999999999).parent_path().filename(),
               "step_999999999_st_0.000");
 }
 
@@ -258,14 +257,21 @@ TEST_F(DiagnosticsTest, RejectsNonFiniteTime)
     EXPECT_ASSERT_FAILURE(manager.get_next_dir(-kInf, 0));
 }
 
-// Past the reserved width the padding stops ordering directories correctly,
-// so the step is rejected rather than allowed to sort out of place.
-TEST_F(DiagnosticsTest, RejectsAStepBeyondThePaddedWidth)
+// The padding is a convenience, not a limit. A step wider than the reserved
+// width is still written; only the name-order sorting of those later
+// directories degrades, which is not the diagnostics' business to police.
+TEST_F(DiagnosticsTest, AcceptsAStepBeyondThePaddedWidth)
 {
     const BasePathManager manager(m_root, "body");
 
-    EXPECT_NO_THROW({ manager.get_next_dir(0.0, BasePathManager::max_step); });
-    EXPECT_ASSERT_FAILURE(manager.get_next_dir(0.0, BasePathManager::max_step + 1));
+    const std::uint64_t wide = 1234567890;  // ten digits
+    EXPECT_NO_THROW({ manager.get_next_dir(0.0, wide); });
+    EXPECT_EQ(manager.get_next_dir(0.0, wide).parent_path().filename(),
+              "step_1234567890_st_0.000");
+
+    // Nothing near the old cap is special any more.
+    EXPECT_NO_THROW({ manager.get_next_dir(0.0, 999999999); });
+    EXPECT_NO_THROW({ manager.get_next_dir(0.0, 1000000000); });
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +281,7 @@ TEST_F(DiagnosticsTest, RejectsAStepBeyondThePaddedWidth)
 TEST_F(DiagnosticsTest, BasicDiagnosticsWritesConfigurationOnly)
 {
     physics::CosseratRod rod = make_rod();
-    BasicDiagnostics diagnostics(m_root, "rod_one");
+    BasicDiagnostics diagnostics(m_root, "rod_one", 1);
 
     diagnostics.make_callback(rod, 0.25, 25);
 
@@ -289,7 +295,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsWritesConfigurationOnly)
 
 TEST_F(DiagnosticsTest, BasicDiagnosticsExposesItsManager)
 {
-    const BasicDiagnostics diagnostics(m_root, "rod_one");
+    const BasicDiagnostics diagnostics(m_root, "rod_one", 1);
 
     EXPECT_EQ(diagnostics.manager().base_path(), m_root);
     EXPECT_EQ(diagnostics.manager().body_name(), "rod_one");
@@ -298,7 +304,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsExposesItsManager)
 TEST_F(DiagnosticsTest, BasicDiagnosticsWritesEachStepSeparately)
 {
     physics::CosseratRod rod = make_rod();
-    BasicDiagnostics diagnostics(m_root, "rod_one");
+    BasicDiagnostics diagnostics(m_root, "rod_one", 1);
 
     for (std::uint64_t step = 0; step < 5; ++step)
     {
@@ -311,7 +317,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsWritesEachStepSeparately)
 TEST_F(DiagnosticsTest, BasicDiagnosticsAcceptsAConstSystem)
 {
     const physics::CosseratRod rod = make_rod();
-    BasicDiagnostics diagnostics(m_root, "rod_one");
+    BasicDiagnostics diagnostics(m_root, "rod_one", 1);
 
     // Writing is read-only, so a const body binds.
     diagnostics.make_callback(rod, 0.0, 0);
@@ -323,7 +329,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsAcceptsAConstSystem)
 TEST_F(DiagnosticsTest, BasicDiagnosticsWorksOnARigidBody)
 {
     physics::Sphere sphere = make_sphere();
-    BasicDiagnostics diagnostics(m_root, "sphere_one");
+    BasicDiagnostics diagnostics(m_root, "sphere_one", 1);
 
     diagnostics.make_callback(sphere, 0.0, 0);
 
@@ -336,7 +342,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsWorksOnARigidBody)
 TEST_F(DiagnosticsTest, BasicDiagnosticsWorksOnAMinimalWriteableSystem)
 {
     WriteOnlySystem system;
-    BasicDiagnostics diagnostics(m_root, "widget");
+    BasicDiagnostics diagnostics(m_root, "widget", 1);
 
     diagnostics.make_callback(system, 0.0, 0);
 
@@ -351,7 +357,7 @@ TEST_F(DiagnosticsTest, BasicDiagnosticsWorksOnAMinimalWriteableSystem)
 TEST_F(DiagnosticsTest, DebugDiagnosticsWritesEveryStack)
 {
     physics::CosseratRod rod = make_rod();
-    DebugDiagnostics diagnostics(m_root, "rod_one");
+    DebugDiagnostics diagnostics(m_root, "rod_one", 1);
 
     diagnostics.make_callback(rod, 0.25, 25);
 
@@ -370,8 +376,8 @@ TEST_F(DiagnosticsTest, DebugDiagnosticsWritesEveryStack)
 TEST_F(DiagnosticsTest, DebugDiagnosticsWritesMoreThanBasic)
 {
     physics::CosseratRod rod = make_rod();
-    BasicDiagnostics basic(m_root / "basic", "rod_one");
-    DebugDiagnostics debug(m_root / "debug", "rod_one");
+    BasicDiagnostics basic(m_root / "basic", "rod_one", 1);
+    DebugDiagnostics debug(m_root / "debug", "rod_one", 1);
 
     basic.make_callback(rod, 0.0, 0);
     debug.make_callback(rod, 0.0, 0);
@@ -396,8 +402,8 @@ TEST_F(DiagnosticsTest, TwoBodiesAtOneStepDoNotOverwriteEachOther)
     physics::CosseratRod rod = make_rod();
     physics::Sphere sphere = make_sphere();
 
-    BasicDiagnostics rod_diagnostics(m_root, "rod_one");
-    BasicDiagnostics sphere_diagnostics(m_root, "sphere_one");
+    BasicDiagnostics rod_diagnostics(m_root, "rod_one", 1);
+    BasicDiagnostics sphere_diagnostics(m_root, "sphere_one", 1);
 
     sphere_diagnostics.make_callback(sphere, 0.0, 100);
     rod_diagnostics.make_callback(rod, 0.0, 100);
@@ -416,8 +422,8 @@ TEST_F(DiagnosticsTest, TwoBodiesAtOneStepDoNotOverwriteEachOther)
 TEST_F(DiagnosticsTest, TheSameBodyNameUnderDifferentRootsStaysSeparate)
 {
     physics::CosseratRod rod = make_rod();
-    BasicDiagnostics first(m_root / "run_a", "rod_one");
-    BasicDiagnostics second(m_root / "run_b", "rod_one");
+    BasicDiagnostics first(m_root / "run_a", "rod_one", 1);
+    BasicDiagnostics second(m_root / "run_b", "rod_one", 1);
 
     first.make_callback(rod, 0.0, 0);
     second.make_callback(rod, 0.0, 0);
@@ -436,8 +442,8 @@ TEST_F(DiagnosticsTest, VariantIsCopyableAndAssignable)
     static_assert(std::is_copy_constructible_v<DiagnosticVariant>);
     static_assert(std::is_copy_assignable_v<DiagnosticVariant>);
 
-    DiagnosticVariant variant = BasicDiagnostics(m_root, "body");
-    const DiagnosticVariant other = DebugDiagnostics(m_root, "body");
+    DiagnosticVariant variant = BasicDiagnostics(m_root, "body", 1);
+    const DiagnosticVariant other = DebugDiagnostics(m_root, "body", 1);
 
     variant = other;
 
@@ -448,8 +454,8 @@ TEST_F(DiagnosticsTest, ValidateAcceptsBothAlternativesOnAFullBody)
 {
     physics::CosseratRod rod = make_rod();
 
-    DiagnosticVariant basic = BasicDiagnostics(m_root, "rod_one");
-    DiagnosticVariant debug = DebugDiagnostics(m_root, "rod_one");
+    DiagnosticVariant basic = BasicDiagnostics(m_root, "rod_one", 1);
+    DiagnosticVariant debug = DebugDiagnostics(m_root, "rod_one", 1);
 
     EXPECT_NO_THROW({ validate(basic, rod); });
     EXPECT_NO_THROW({ validate(debug, rod); });
@@ -458,7 +464,7 @@ TEST_F(DiagnosticsTest, ValidateAcceptsBothAlternativesOnAFullBody)
 TEST_F(DiagnosticsTest, ValidateAcceptsBasicOnAWriteOnlySystem)
 {
     WriteOnlySystem system;
-    DiagnosticVariant basic = BasicDiagnostics(m_root, "widget");
+    DiagnosticVariant basic = BasicDiagnostics(m_root, "widget", 1);
 
     EXPECT_NO_THROW({ validate(basic, system); });
 }
@@ -467,7 +473,7 @@ TEST_F(DiagnosticsTest, ValidateAcceptsBasicOnAWriteOnlySystem)
 TEST_F(DiagnosticsTest, ValidateRejectsDebugOnAWriteOnlySystem)
 {
     WriteOnlySystem system;
-    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget");
+    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget", 1);
 
     EXPECT_ASSERT_FAILURE(validate(debug, system));
 }
@@ -475,8 +481,8 @@ TEST_F(DiagnosticsTest, ValidateRejectsDebugOnAWriteOnlySystem)
 TEST_F(DiagnosticsTest, ValidateRejectsBothOnAnOpaqueSystem)
 {
     OpaqueSystem system;
-    DiagnosticVariant basic = BasicDiagnostics(m_root, "widget");
-    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget");
+    DiagnosticVariant basic = BasicDiagnostics(m_root, "widget", 1);
+    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget", 1);
 
     EXPECT_ASSERT_FAILURE(validate(basic, system));
     EXPECT_ASSERT_FAILURE(validate(debug, system));
@@ -486,8 +492,8 @@ TEST_F(DiagnosticsTest, MakeCallbackThroughTheVariantMatchesADirectCall)
 {
     physics::CosseratRod rod = make_rod();
 
-    BasicDiagnostics direct(m_root / "direct", "rod_one");
-    DiagnosticVariant through = BasicDiagnostics(m_root / "through", "rod_one");
+    BasicDiagnostics direct(m_root / "direct", "rod_one", 1);
+    DiagnosticVariant through = BasicDiagnostics(m_root / "through", "rod_one", 1);
 
     direct.make_callback(rod, 0.5, 5);
     make_callback(through, rod, 0.5, 5);
@@ -502,7 +508,7 @@ TEST_F(DiagnosticsTest, MakeCallbackThroughTheVariantMatchesADirectCall)
 TEST_F(DiagnosticsTest, MakeCallbackRejectsAnIncompatibleSystem)
 {
     WriteOnlySystem system;
-    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget");
+    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget", 1);
 
     EXPECT_ASSERT_FAILURE(make_callback(debug, system, 0.0, 0));
 }
@@ -514,8 +520,8 @@ TEST_F(DiagnosticsTest, AListOfDiagnosticsDrivesSeveralBodies)
     physics::Sphere sphere = make_sphere();
 
     std::vector<DiagnosticVariant> diagnostics;
-    diagnostics.emplace_back(BasicDiagnostics(m_root, "rod_one"));
-    diagnostics.emplace_back(DebugDiagnostics(m_root, "sphere_one"));
+    diagnostics.emplace_back(BasicDiagnostics(m_root, "rod_one", 1));
+    diagnostics.emplace_back(DebugDiagnostics(m_root, "sphere_one", 1));
 
     validate(diagnostics[0], rod);
     validate(diagnostics[1], sphere);
@@ -537,6 +543,200 @@ TEST_F(DiagnosticsTest, AListOfDiagnosticsDrivesSeveralBodies)
                   (std::vector<std::string>{"rod_one", "sphere_one"}))
             << "step " << step;
     }
+}
+
+// ---------------------------------------------------------------------------
+// StepSchedule
+// ---------------------------------------------------------------------------
+
+TEST(StepScheduleTest, IntervalOfOneWritesEveryStep)
+{
+    const StepSchedule schedule(1);
+
+    EXPECT_EQ(schedule.steps_to_skip(), 1u);
+    for (std::uint64_t step = 0; step < 20; ++step)
+    {
+        EXPECT_TRUE(schedule.should_write(step)) << "step " << step;
+    }
+}
+
+TEST(StepScheduleTest, IntervalFiresOnMultiplesOnly)
+{
+    const StepSchedule schedule(5);
+
+    for (std::uint64_t step = 0; step < 21; ++step)
+    {
+        EXPECT_EQ(schedule.should_write(step), step % 5 == 0) << "step " << step;
+    }
+}
+
+// Step zero is a multiple of everything, so the initial state is always
+// recorded whatever the interval.
+TEST(StepScheduleTest, StepZeroIsAlwaysWritten)
+{
+    for (std::uint64_t interval : {1u, 2u, 7u, 1000u})
+    {
+        EXPECT_TRUE(StepSchedule(interval).should_write(0))
+            << "interval " << interval;
+    }
+}
+
+TEST(StepScheduleTest, LargeIntervalsAndStepsBehave)
+{
+    const StepSchedule schedule(1000);
+
+    EXPECT_TRUE(schedule.should_write(0));
+    EXPECT_FALSE(schedule.should_write(999));
+    EXPECT_TRUE(schedule.should_write(1000));
+    EXPECT_TRUE(schedule.should_write(1000000000));
+    EXPECT_FALSE(schedule.should_write(1000000001));
+}
+
+// An interval of zero would never fire, and would divide by zero deciding so.
+TEST(StepScheduleDeathTest, RejectsAnIntervalOfZero)
+{
+    EXPECT_ASSERT_FAILURE(StepSchedule(0));
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics honour their schedule
+// ---------------------------------------------------------------------------
+
+TEST_F(DiagnosticsTest, DiagnosticsExposeTheirSchedule)
+{
+    const BasicDiagnostics basic(m_root / "basic", "rod_one", 7);
+    const DebugDiagnostics debug(m_root / "debug", "rod_one", 250);
+
+    EXPECT_EQ(basic.schedule().steps_to_skip(), 7u);
+    EXPECT_EQ(debug.schedule().steps_to_skip(), 250u);
+}
+
+// The return value says whether the step fell on the schedule.
+TEST_F(DiagnosticsTest, MakeCallbackReportsWhetherItWrote)
+{
+    physics::CosseratRod rod = make_rod();
+    BasicDiagnostics diagnostics(m_root, "rod_one", 4);
+
+    EXPECT_TRUE(diagnostics.make_callback(rod, 0.0, 0));
+    EXPECT_FALSE(diagnostics.make_callback(rod, 0.1, 1));
+    EXPECT_FALSE(diagnostics.make_callback(rod, 0.3, 3));
+    EXPECT_TRUE(diagnostics.make_callback(rod, 0.4, 4));
+}
+
+// A skipped step must leave no trace at all, not an empty directory.
+TEST_F(DiagnosticsTest, SkippedStepsCreateNoDirectory)
+{
+    physics::CosseratRod rod = make_rod();
+    BasicDiagnostics diagnostics(m_root, "rod_one", 3);
+
+    for (std::uint64_t step = 0; step < 10; ++step)
+    {
+        diagnostics.make_callback(rod, 0.01 * static_cast<double>(step), step);
+    }
+
+    // Steps 0, 3, 6 and 9 only.
+    const std::vector<std::string> names = sorted_entries(m_root);
+    ASSERT_EQ(names.size(), 4u);
+    EXPECT_EQ(names[0].substr(0, 14), "step_000000000");
+    EXPECT_EQ(names[1].substr(0, 14), "step_000000003");
+    EXPECT_EQ(names[2].substr(0, 14), "step_000000006");
+    EXPECT_EQ(names[3].substr(0, 14), "step_000000009");
+}
+
+TEST_F(DiagnosticsTest, AnIntervalOfOneWritesEveryStep)
+{
+    physics::CosseratRod rod = make_rod();
+    BasicDiagnostics diagnostics(m_root, "rod_one", 1);
+
+    for (std::uint64_t step = 0; step < 6; ++step)
+    {
+        EXPECT_TRUE(diagnostics.make_callback(rod, 0.0, step)) << "step " << step;
+    }
+
+    EXPECT_EQ(sorted_entries(m_root).size(), 6u);
+}
+
+TEST_F(DiagnosticsTest, DebugDiagnosticsHonoursItsSchedule)
+{
+    physics::CosseratRod rod = make_rod();
+    DebugDiagnostics diagnostics(m_root, "rod_one", 5);
+
+    for (std::uint64_t step = 0; step < 12; ++step)
+    {
+        diagnostics.make_callback(rod, 0.0, step);
+    }
+
+    // Steps 0, 5 and 10.
+    EXPECT_EQ(sorted_entries(m_root).size(), 3u);
+}
+
+// A long run with a coarse interval writes only what the interval allows,
+// which is the reason the parameter exists.
+TEST_F(DiagnosticsTest, ACoarseIntervalKeepsOutputSmall)
+{
+    physics::Sphere sphere = make_sphere();
+    BasicDiagnostics diagnostics(m_root, "sphere_one", 100);
+
+    std::uint64_t written = 0;
+    for (std::uint64_t step = 0; step < 1000; ++step)
+    {
+        if (diagnostics.make_callback(sphere, 1e-4 * static_cast<double>(step), step))
+        {
+            ++written;
+        }
+    }
+
+    EXPECT_EQ(written, 10u);
+    EXPECT_EQ(sorted_entries(m_root).size(), 10u);
+}
+
+// Two bodies on different schedules share the step directories they land on.
+TEST_F(DiagnosticsTest, BodiesMayRunOnDifferentSchedules)
+{
+    physics::CosseratRod rod = make_rod();
+    physics::Sphere sphere = make_sphere();
+
+    BasicDiagnostics rod_diagnostics(m_root, "rod_one", 2);
+    BasicDiagnostics sphere_diagnostics(m_root, "sphere_one", 4);
+
+    for (std::uint64_t step = 0; step < 8; ++step)
+    {
+        rod_diagnostics.make_callback(rod, 0.0, step);
+        sphere_diagnostics.make_callback(sphere, 0.0, step);
+    }
+
+    // The rod writes on 0, 2, 4, 6; the sphere on 0 and 4.
+    EXPECT_EQ(sorted_entries(m_root).size(), 4u);
+    EXPECT_EQ(sorted_entries(m_root / "step_000000000_st_0.000"),
+              (std::vector<std::string>{"rod_one", "sphere_one"}));
+    EXPECT_EQ(sorted_entries(m_root / "step_000000002_st_0.000"),
+              (std::vector<std::string>{"rod_one"}));
+    EXPECT_EQ(sorted_entries(m_root / "step_000000004_st_0.000"),
+              (std::vector<std::string>{"rod_one", "sphere_one"}));
+}
+
+TEST_F(DiagnosticsTest, ScheduleIsHonouredThroughTheVariant)
+{
+    physics::CosseratRod rod = make_rod();
+    DiagnosticVariant diagnostic = BasicDiagnostics(m_root, "rod_one", 3);
+
+    EXPECT_TRUE(make_callback(diagnostic, rod, 0.0, 0));
+    EXPECT_FALSE(make_callback(diagnostic, rod, 0.1, 1));
+    EXPECT_FALSE(make_callback(diagnostic, rod, 0.2, 2));
+    EXPECT_TRUE(make_callback(diagnostic, rod, 0.3, 3));
+
+    EXPECT_EQ(sorted_entries(m_root).size(), 2u);
+}
+
+// Skipping is decided before the system is touched, so a body that cannot
+// serve the diagnostic is still rejected on a skipped step.
+TEST_F(DiagnosticsTest, IncompatibleSystemsAreRejectedRegardlessOfSchedule)
+{
+    WriteOnlySystem system;
+    DiagnosticVariant debug = DebugDiagnostics(m_root, "widget", 100);
+
+    EXPECT_ASSERT_FAILURE(make_callback(debug, system, 0.0, 1));
+    EXPECT_ASSERT_FAILURE(make_callback(debug, system, 0.0, 100));
 }
 
 }  // namespace

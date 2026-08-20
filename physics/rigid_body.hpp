@@ -146,7 +146,7 @@ public: // Methods
     void update_accelerations(double time, double dt);
 
     /** @brief Clears the external force and torque accumulators. */
-    void zero_out_external_forces_and_torques();
+    void zero_out_external_forces_and_torques(double);
 
     /**
      * @brief Position of the centre of mass.

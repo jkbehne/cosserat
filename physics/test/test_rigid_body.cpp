@@ -426,7 +426,7 @@ TEST(RigidBodyDynamics, ZeroOutClearsOnlyTheExternalAccumulators)
     cylinder.mutable_external_torques().setConstant(6.0);
     cylinder.mutable_velocities().row(0) << 1.0, 2.0, 3.0;
 
-    cylinder.zero_out_external_forces_and_torques();
+    cylinder.zero_out_external_forces_and_torques(0.0 /* time */);
 
     EXPECT_TRUE(Near(cylinder.external_forces(), Vector3DStack::Zero(1, 3)));
     EXPECT_TRUE(Near(cylinder.external_torques(), Vector3DStack::Zero(1, 3)));
@@ -589,7 +589,7 @@ TEST(InterfaceAgreement, BothBodiesExposeTheSameStepperEntryPoints)
 {
     BOTH_PROVIDE(sys.compute_internal_forces_and_torques(0.0));
     BOTH_PROVIDE(sys.update_accelerations(0.0, 1e-4));
-    BOTH_PROVIDE(sys.zero_out_external_forces_and_torques());
+    BOTH_PROVIDE(sys.zero_out_external_forces_and_torques(0.0 /* time */));
     SUCCEED();
 }
 
@@ -597,7 +597,7 @@ TEST(InterfaceAgreement, BothBodiesExposeTheSameStepperEntryPoints)
 TEST(InterfaceAgreement, ATemplatedStepDrivesEitherBody)
 {
     const auto step = [](auto& body, const Eigen::Vector3d& force) {
-        body.zero_out_external_forces_and_torques();
+        body.zero_out_external_forces_and_torques(0.0 /* time */);
         body.mutable_external_forces().row(0) += force.transpose();
         body.compute_internal_forces_and_torques(0.0);
         body.update_accelerations(0.0, 1e-4);

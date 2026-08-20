@@ -21,7 +21,15 @@
  *
  * Step numbers are zero padded so that listing the step directories in name
  * order gives them in step order. Without the padding @c step_10 sorts before
- * @c step_2, which quietly reorders any glob-driven post-processing.
+ * @c step_2, which quietly reorders any glob-driven post-processing. The
+ * padding is a convenience, not a limit: a run longer than the reserved width
+ * simply produces wider names, and only the ordering of those later
+ * directories degrades.
+ *
+ * Writing every step is rarely wanted, so each diagnostic carries a
+ * @ref StepSchedule saying how often it fires. A schedule of one writes every
+ * step; a schedule of @c n writes whenever the step index is a multiple of
+ * @c n, which always includes step zero.
  *
  * Two diagnostics are provided, differing only in how much they write:
  * @ref BasicDiagnostics asks for the configuration needed to reconstruct a
@@ -84,13 +92,13 @@ public: // Static constexpr members
      * @brief Digits used for the zero-padded step number.
      *
      * Nine digits keeps the step directories in sorted order up to just under
-     * a billion steps, past which a step is rejected rather than allowed to
-     * sort out of place.
+     * a billion steps. A longer run is still written correctly; its step
+     * numbers simply outgrow the padding, so those later directories no longer
+     * sort into step order by name. That is a presentation detail and is not
+     * enforced, since how long a simulation may run is not this class's
+     * business.
      */
     static constexpr int step_digits = 9;
-
-    /** @brief Largest step number the padding can order correctly. */
-    static constexpr std::uint64_t max_step = 999999999;
 
 private: // Members
     std::filesystem::path m_base_path;
@@ -118,7 +126,7 @@ public: // Methods
      *
      * @param time Current simulation time; must be finite, so that an
      *        unstable run cannot produce a directory named after a NaN.
-     * @param step Current step index; must not exceed @ref max_step.
+     * @param step Current step index.
      * @return The created directory.
      *
      * @note Const because it does not change the manager, though it does
@@ -134,6 +142,38 @@ public: // Methods
 };
 
 /**
+ * @brief How often a diagnostic fires.
+ *
+ * A schedule of @c n writes on every step whose index is a multiple of @c n,
+ * so a schedule of one writes every step and step zero is always written.
+ * Kept as its own type so both diagnostics share one definition of the rule
+ * rather than each carrying a copy.
+ */
+class StepSchedule
+{
+private: // Members
+    std::uint64_t m_steps_to_skip;
+
+public: // Methods
+    /**
+     * @brief Builds a schedule firing once every @p steps_to_skip steps.
+     * @param steps_to_skip Interval between writes; must be at least one,
+     *        since an interval of zero would never fire.
+     */
+    explicit StepSchedule(std::uint64_t steps_to_skip);
+
+    /**
+     * @brief Whether a step should be written.
+     * @param step Current step index.
+     * @return True when @p step is a multiple of the interval.
+     */
+    bool should_write(std::uint64_t step) const;
+
+    /** @brief Interval between writes. */
+    std::uint64_t steps_to_skip() const;
+};
+
+/**
  * @brief Writes the configuration needed to reconstruct a body's shape.
  *
  * Suitable for the output a run actually keeps: enough to replay or plot the
@@ -145,14 +185,20 @@ class BasicDiagnostics
 {
 private: // Members
     BasePathManager m_manager;
+    StepSchedule m_schedule;
 
 public: // Methods
     /**
      * @brief Builds a diagnostic rooted at a directory, for one named body.
      * @param base_path Directory to write beneath.
      * @param body_name Name of the body this diagnostic writes for.
+     * @param steps_to_skip Interval between writes; one writes every step.
      */
-    BasicDiagnostics(std::filesystem::path base_path, std::string body_name);
+    BasicDiagnostics(
+        std::filesystem::path base_path,
+        std::string body_name,
+        std::uint64_t steps_to_skip
+    );
 
     /**
      * @brief Writes the body's configuration for the current step.
@@ -161,19 +207,26 @@ public: // Methods
      * @param system Body to write; read but not modified.
      * @param time Current simulation time.
      * @param step Current step index.
+     * @return True if the step fell on the schedule and was written, false if
+     *         it was skipped. No directory is created for a skipped step.
      *
      * @note Non-const so that a diagnostic which buffers state between calls
      *       can be added later without changing every call site.
      */
     template<Writeable System>
-    void make_callback(System& system, double time, std::uint64_t step)
+    bool make_callback(System& system, double time, std::uint64_t step)
     {
+        if (not m_schedule.should_write(step)) return false;
         const auto path = m_manager.get_next_dir(time, step);
         system.write(path);
+        return true;
     }
 
     /** @brief The path manager this diagnostic writes through. */
     const BasePathManager& manager() const;
+
+    /** @brief The schedule deciding which steps are written. */
+    const StepSchedule& schedule() const;
 };
 
 /**
@@ -189,14 +242,20 @@ class DebugDiagnostics
 {
 private: // Members
     BasePathManager m_manager;
+    StepSchedule m_schedule;
 
 public: // Methods
     /**
      * @brief Builds a diagnostic rooted at a directory, for one named body.
      * @param base_path Directory to write beneath.
      * @param body_name Name of the body this diagnostic writes for.
+     * @param steps_to_skip Interval between writes; one writes every step.
      */
-    DebugDiagnostics(std::filesystem::path base_path, std::string body_name);
+    DebugDiagnostics(
+        std::filesystem::path base_path,
+        std::string body_name,
+        std::uint64_t steps_to_skip
+    );
 
     /**
      * @brief Writes the body's full state for the current step.
@@ -205,19 +264,26 @@ public: // Methods
      * @param system Body to write; read but not modified.
      * @param time Current simulation time.
      * @param step Current step index.
+     * @return True if the step fell on the schedule and was written, false if
+     *         it was skipped. No directory is created for a skipped step.
      *
      * @note Non-const for the same reason as
      *       @ref BasicDiagnostics::make_callback.
      */
     template<DebugWriteable System>
-    void make_callback(System& system, double time, std::uint64_t step)
+    bool make_callback(System& system, double time, std::uint64_t step)
     {
+        if (not m_schedule.should_write(step)) return false;
         const auto path = m_manager.get_next_dir(time, step);
         system.write_debug(path);
+        return true;
     }
 
     /** @brief The path manager this diagnostic writes through. */
     const BasePathManager& manager() const;
+
+    /** @brief The schedule deciding which steps are written. */
+    const StepSchedule& schedule() const;
 };
 
 /** @brief Any one of the diagnostics, held by value. */
@@ -256,19 +322,26 @@ void validate(DiagnosticVariant& diag_var, BodyType& system)
  * @param system Body to write; read but not modified.
  * @param time Current simulation time.
  * @param step Current step index.
+ * @return True if the step fell on the diagnostic's schedule and was written.
  */
 template<typename BodyType>
-void make_callback(
+bool make_callback(
     DiagnosticVariant& diag_var, BodyType& system, double time, std::uint64_t step
 )
 {
-    std::visit([&](auto& diag)
+    return std::visit([&](auto& diag) -> bool
     {
         if constexpr (requires {diag.make_callback(system, time, step);})
         {
-            diag.make_callback(system, time, step);
+            return diag.make_callback(system, time, step);
         }
-        else utils::nice_assert(false, "Diagnostic is incompatible with this system");
+        else
+        {
+            utils::nice_assert(
+                false, "Diagnostic is incompatible with this system"
+            );
+            return false;
+        }
     }, diag_var);
 }
 } // End namespace cosserat::simulation

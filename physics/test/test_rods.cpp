@@ -573,7 +573,7 @@ TEST(RodAccelerations, ZeroOutClearsOnlyTheExternalAccumulators)
 
     const Vector3DStack internal_forces = rod.internal_forces();
 
-    rod.zero_out_external_forces_and_torques();
+    rod.zero_out_external_forces_and_torques(0.0 /* time */);
 
     EXPECT_TRUE(Near(rod.external_forces(), Vector3DStack::Zero(kElements + 1, 3)));
     EXPECT_TRUE(Near(rod.external_torques(), Vector3DStack::Zero(kElements, 3)));

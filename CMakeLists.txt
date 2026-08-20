@@ -448,6 +448,38 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_dynamics_kinematics physics/test/test_dynamics_kinematics.cpp)
+    target_link_libraries(test_dynamics_kinematics
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_dynamics_kinematics PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_dynamics_kinematics
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_bodies physics/test/test_bodies.cpp)
+    target_link_libraries(test_bodies
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_bodies PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_bodies
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_solver simulation/test/test_solver.cpp)
     target_link_libraries(test_solver
         PRIVATE
