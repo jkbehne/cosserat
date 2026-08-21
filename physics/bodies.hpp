@@ -96,7 +96,7 @@ public: // Methods
      * @param dt Timestep. Note that this is the whole step rather than a
      *        substage prefactor, unlike @ref update_dynamics.
      */
-    void update_acceleration(double time, double dt);
+    void update_accelerations(double time, double dt);
 
     /**
      * @brief Recomputes the body's internal forces and torques.

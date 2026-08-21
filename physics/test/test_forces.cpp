@@ -417,7 +417,6 @@ TEST(EndpointForceSinusoidalDeathTest, RejectsNonOrthogonalDirections)
 
 TEST(EndpointForceSinusoidalDeathTest, RejectsBadMagnitudesAndOnset)
 {
-    EXPECT_ASSERT_FAILURE(EndpointForceSinusoidal(kNormal, kTangent, 0.0, 1.0, 0.0));
     EXPECT_ASSERT_FAILURE(EndpointForceSinusoidal(kNormal, kTangent, -1.0, 1.0, 0.0));
     EXPECT_ASSERT_FAILURE(EndpointForceSinusoidal(kNormal, kTangent, 1.0, kInf, 0.0));
     EXPECT_ASSERT_FAILURE(EndpointForceSinusoidal(kNormal, kTangent, 1.0, 1.0, kNaN));

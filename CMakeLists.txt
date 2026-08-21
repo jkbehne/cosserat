@@ -72,9 +72,20 @@ else()
     set(PROJECT_OPTIMIZATION
         -O3
     )
+    set(PROJECT_PROFILING
+        -fprofile-instr-generate
+        -fcoverage-mapping
+    )
     # Useful but noisy through GoogleTest's macros. Enable per target once
     # you are happy with the baseline:
     #   -Wold-style-cast -Wconversion -Wsign-conversion -Wuseless-cast
+endif()
+
+option(ENABLE_OPTIMIZATION "Enables code optimization" ON)
+option(ENABLE_PROFILING "Enables LLVM code profiling" OFF)
+
+if (ENABLE_PROFILING)
+    add_link_options(-fprofile-instr-generate)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -100,7 +111,13 @@ if(UTILS_SOURCES)
     set_target_properties(utils PROPERTIES
         POSITION_INDEPENDENT_CODE ON
     )
-    target_compile_options(utils PRIVATE ${PROJECT_STRICT_WARNINGS} ${PROJECT_OPTIMIZATION})
+    target_compile_options(utils PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(utils PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(utils PRIVATE ${PROJECT_PROFILING})
+    endif()
     message(STATUS "utils: shared library from ${UTILS_SOURCES}")
 else()
     add_library(utils INTERFACE)
@@ -135,7 +152,13 @@ if(MATH_SOURCES)
     set_target_properties(math PROPERTIES
         POSITION_INDEPENDENT_CODE ON
     )
-    target_compile_options(math PRIVATE ${PROJECT_STRICT_WARNINGS} ${PROJECT_OPTIMIZATION})
+    target_compile_options(math PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(math PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(math PRIVATE ${PROJECT_PROFILING})
+    endif()
     message(STATUS "math: shared library from ${MATH_SOURCES}")
 else()
     add_library(math INTERFACE)
@@ -168,7 +191,13 @@ if(PHYSICS_SOURCES)
     set_target_properties(physics PROPERTIES
         POSITION_INDEPENDENT_CODE ON
     )
-    target_compile_options(physics PRIVATE ${PROJECT_STRICT_WARNINGS} ${PROJECT_OPTIMIZATION})
+    target_compile_options(physics PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(physics PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(physics PRIVATE ${PROJECT_PROFILING})
+    endif()
     message(STATUS "physics: shared library from ${PHYSICS_SOURCES}")
 else()
     add_library(physics INTERFACE)
@@ -201,7 +230,13 @@ if(SIM_SOURCES)
     set_target_properties(simulation PROPERTIES
         POSITION_INDEPENDENT_CODE ON
     )
-    target_compile_options(simulation PRIVATE ${PROJECT_STRICT_WARNINGS} ${PROJECT_OPTIMIZATION})
+    target_compile_options(simulation PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(simulation PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(simulation PRIVATE ${PROJECT_PROFILING})
+    endif()
     message(STATUS "simulation: shared library from ${SIM_SOURCES}")
 else()
     add_library(simulation INTERFACE)
@@ -215,9 +250,12 @@ target_include_directories(simulation ${SIM_SCOPE}
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
     "$<INSTALL_INTERFACE:include>"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/eigen"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/ordered_map/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include"
 )
 target_compile_features(simulation ${SIM_SCOPE} cxx_std_20)
-target_link_libraries(simulation ${SIM_SCOPE} utils::utils)
+target_link_libraries(simulation ${SIM_SCOPE} utils::utils math::math physics::physics)
 
 # ---------------------------------------------------------------------------
 # GoogleTest. Prefer a system install, fetch a pinned release otherwise.
@@ -542,4 +580,54 @@ if(BUILD_TESTING)
             LABELS simulation
         DISCOVERY_TIMEOUT 30
     )
+
+    add_executable(test_simulation_graph simulation/test/test_simulation_graph.cpp)
+    target_link_libraries(test_simulation_graph
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_simulation_graph PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_simulation_graph
+        PROPERTIES
+            LABELS simulation
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_logging simulation/test/test_logging.cpp)
+    target_link_libraries(test_logging
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_logging PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_logging
+        PROPERTIES
+            LABELS simulation
+        DISCOVERY_TIMEOUT 30
+    )
+endif()
+
+option(BUILD_EXAMPLES "Build examples" ON)
+if(BUILD_EXAMPLES)
+    add_executable(fixed_joint examples/joint_cases/fixed_joint.cpp)
+    target_link_libraries(fixed_joint
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+    )
+    target_compile_options(fixed_joint PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(fixed_joint PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(fixed_joint PRIVATE ${PROJECT_PROFILING})
+    endif()
 endif()

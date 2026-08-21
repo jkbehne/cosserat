@@ -152,7 +152,7 @@ TEST(BodyVariantWrapperTest, UpdateDynamicsMatchesADirectCall)
     direct.compute_internal_forces_and_torques(0.0);
     direct.update_accelerations(0.0, 1e-4);
     wrapped.compute_internal_forces_and_torques(0.0);
-    wrapped.update_acceleration(0.0, 1e-4);
+    wrapped.update_accelerations(0.0, 1e-4);
 
     dynamics::update_dynamics(direct, 0.0, 1e-4);
     wrapped.update_dynamics(0.0, 1e-4);
@@ -168,7 +168,7 @@ TEST(BodyVariantWrapperTest, UpdateAccelerationReachesTheBody)
     Sphere& sphere = std::get<Sphere>(wrapped.body());
     sphere.mutable_external_forces().row(0) << 10.0, -5.0, 2.0;
 
-    wrapped.update_acceleration(0.0, 1e-4);
+    wrapped.update_accelerations(0.0, 1e-4);
 
     EXPECT_TRUE(Near(sphere.accelerations().row(0),
                      Eigen::RowVector3d(10.0, -5.0, 2.0) / sphere.total_mass(),
@@ -228,7 +228,7 @@ TEST(BodyVariantWrapperTest, EveryMethodWorksOnEveryBodyKind)
     {
         EXPECT_NO_THROW({
             body.compute_internal_forces_and_torques(0.0);
-            body.update_acceleration(0.0, 1e-4);
+            body.update_accelerations(0.0, 1e-4);
             body.update_dynamics(0.0, 1e-4);
             body.update_kinematics(0.0, 0.5e-4);
             body.zero_out_external_forces_and_torques(0.0);
@@ -329,7 +329,7 @@ TEST(BodyVariantWrapperDeathTest, AMovedFromHandleFailsCleanly)
     // NOLINTBEGIN(bugprone-use-after-move)
     EXPECT_ASSERT_FAILURE(source.update_kinematics(0.0, 1e-4));
     EXPECT_ASSERT_FAILURE(source.update_dynamics(0.0, 1e-4));
-    EXPECT_ASSERT_FAILURE(source.update_acceleration(0.0, 1e-4));
+    EXPECT_ASSERT_FAILURE(source.update_accelerations(0.0, 1e-4));
     EXPECT_ASSERT_FAILURE(source.compute_internal_forces_and_torques(0.0));
     EXPECT_ASSERT_FAILURE(source.zero_out_external_forces_and_torques(0.0));
     EXPECT_ASSERT_FAILURE(source.body());
@@ -372,7 +372,7 @@ TEST(BodyVariantWrapperTest, OneLoopStepsAMixedCollection)
         for (BodyVariantWrapper& body : bodies)
         {
             body.compute_internal_forces_and_torques(0.0);
-            body.update_acceleration(0.0, dt);
+            body.update_accelerations(0.0, dt);
             body.update_dynamics(0.0, dt);
         }
         for (BodyVariantWrapper& body : bodies) body.update_kinematics(0.0, 0.5 * dt);
@@ -414,7 +414,7 @@ TEST(BodyVariantWrapperTest, AnUnloadedCollectionDoesNotMove)
         {
             body.update_kinematics(0.0, 0.5 * dt);
             body.compute_internal_forces_and_torques(0.0);
-            body.update_acceleration(0.0, dt);
+            body.update_accelerations(0.0, dt);
             body.update_dynamics(0.0, dt);
             body.update_kinematics(0.0, 0.5 * dt);
             body.zero_out_external_forces_and_torques(0.0);

@@ -68,6 +68,9 @@ public: // Methods
             std::round(full_dt / dt)
         );
         double time = start;
+        system.constrain_values(time);
+        system.constrain_rates(time);
+        system.apply_callbacks(time, current_step);
         for (std::uint64_t idx = 0; idx < num_steps; ++idx)
         {
             time = step(system, time);

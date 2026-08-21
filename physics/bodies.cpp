@@ -35,7 +35,7 @@ void BodyVariantWrapper::update_dynamics(double time, double scale)
     );
 }
 
-void BodyVariantWrapper::update_acceleration(double time, double dt)
+void BodyVariantWrapper::update_accelerations(double time, double dt)
 {
     std::visit([&](auto& body){body.update_accelerations(time, dt);}, variant());
 }

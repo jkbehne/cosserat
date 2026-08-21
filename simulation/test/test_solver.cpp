@@ -1,16 +1,17 @@
-// Tests for math::cosserat::Solver
+// Tests for cosserat::simulation::Solver
 //
 // Build note: link against gtest_main.
 //
-// IMPORTANT: these tests deliberately live in namespace `math::cosserat` and
-// NOT in an anonymous namespace. `SolverTestPeer` is forward-declared in
-// solver.hpp as `math::cosserat::SolverTestPeer`; defining it inside an
+// IMPORTANT: these tests deliberately live in namespace `cosserat::simulation`
+// and NOT in an anonymous namespace. `SolverTestPeer` is forward-declared in
+// solver.hpp as `cosserat::simulation::SolverTestPeer`; defining it inside an
 // anonymous namespace would produce a *different* type
-// (math::cosserat::<unnamed>::SolverTestPeer) and the friend declaration in
-// Solver would not apply to it.
+// (cosserat::simulation::<unnamed>::SolverTestPeer) and the friend declaration
+// in Solver would not apply to it.
 
 #include "simulation/solver.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -300,6 +301,17 @@ struct OldZeroedOutName
     void zeroed_out_external_forces_and_torques(double) {}
 };
 
+// Retains the singular spelling the body wrapper used before it was renamed to
+// match the concept.
+struct SingularUpdateAcceleration
+{
+    void update_kinematics(double, double) {}
+    void update_dynamics(double, double) {}
+    void update_acceleration(double, double) {}
+    void compute_internal_forces_and_torques(double) {}
+    void zero_out_external_forces_and_torques(double) {}
+};
+
 struct PrivateMethods
 {
 private:
@@ -472,6 +484,13 @@ TEST(IntegrableSystemConcept, RejectsMissingMethod)
 TEST(IntegrableSystemConcept, RejectsPreviousZeroedOutSpelling)
 {
     EXPECT_FALSE(IntegrableSystem<concept_fixtures::OldZeroedOutName>);
+}
+
+// The body wrapper once spelled this in the singular, which made it fail this
+// concept and prevented Solver from instantiating at all.
+TEST(IntegrableSystemConcept, RejectsSingularUpdateAcceleration)
+{
+    EXPECT_FALSE(IntegrableSystem<concept_fixtures::SingularUpdateAcceleration>);
 }
 
 TEST(IntegrableSystemConcept, RejectsInaccessibleMethods)
@@ -682,7 +701,7 @@ TEST_F(SolverTest, StepVisitsEverySubSystemInEveryPhase)
 
 // Documents the redundant re-fetching noted in review: cheap for a member
 // vector, not cheap if an implementation ever builds the container on demand.
-TEST_F(SolverTest, StepCallsFinalSystemsFourTimes)
+TEST_F(SolverTest, StepRefetchesFinalSystemsOncePerPhase)
 {
     solver.step(system, 0.0);
     EXPECT_EQ(5u, log.count("final_systems"));
@@ -844,6 +863,108 @@ TEST_F(SolverTest, ResetAllowsRelatchingANewOrigin)
 }
 
 // ---------------------------------------------------------------------------
+// full_solve(): the initial pass
+//
+// Before integrating anything, full_solve pins the configuration and the rates
+// and fires the callbacks at step zero. This mirrors the reference
+// implementation, whose finalize() does exactly constrain_values(0),
+// constrain_rates(0), apply_callbacks(0, 0) -- so the initial state is recorded
+// rather than the first frame on disk being one interval into the run.
+// ---------------------------------------------------------------------------
+
+TEST_F(SolverTest, FullSolveConstrainsAndRecordsBeforeIntegrating)
+{
+    solver.full_solve(system, 0.0, kDt);  // exactly one step
+
+    const std::vector<std::string> sequence = log.sequence();
+    ASSERT_GE(sequence.size(), 3u);
+    // The run opens with the initial pass, before any subsystem is touched.
+    EXPECT_EQ("S.constrain_values", sequence[0]);
+    EXPECT_EQ("S.constrain_rates", sequence[1]);
+    EXPECT_EQ("S.apply_callbacks", sequence[2]);
+}
+
+TEST_F(SolverTest, TheInitialCallbackReceivesStepZeroAndTheStartTime)
+{
+    solver.full_solve(system, 5.0, 5.0 + kDt);
+
+    const Call& initial = log.nth("apply_callbacks", 0);
+    EXPECT_EQ(0u, initial.step);
+    EXPECT_DOUBLE_EQ(5.0, initial.time);
+}
+
+// The initial pass records the state as it stands; it must not advance it.
+TEST_F(SolverTest, TheInitialPassTouchesNoSubSystem)
+{
+    MockSystem lone_system{&log, 1};
+    Solver<MockSystem> tiny{kDt};
+
+    // Stop before the loop by inspecting the log up to the first callback.
+    tiny.full_solve(lone_system, 0.0, kDt);
+
+    const std::vector<std::string> sequence = log.sequence();
+    const auto first_callback =
+        std::find(sequence.begin(), sequence.end(), "S.apply_callbacks");
+    ASSERT_NE(first_callback, sequence.end());
+
+    for (auto it = sequence.begin(); it != first_callback; ++it)
+    {
+        EXPECT_EQ('S', it->front()) << "subsystem work before the initial frame: " << *it;
+    }
+}
+
+// synchronize is not part of the initial pass, so no loads are accumulated
+// before the first frame is recorded.
+TEST_F(SolverTest, TheInitialPassDoesNotSynchronize)
+{
+    solver.full_solve(system, 0.0, kDt);
+
+    const std::vector<std::string> sequence = log.sequence();
+    const auto first_callback =
+        std::find(sequence.begin(), sequence.end(), "S.apply_callbacks");
+    const auto first_sync =
+        std::find(sequence.begin(), sequence.end(), "S.synchronize");
+    ASSERT_NE(first_callback, sequence.end());
+    ASSERT_NE(first_sync, sequence.end());
+    EXPECT_LT(first_callback - sequence.begin(), first_sync - sequence.begin());
+}
+
+// step() alone is unchanged: the initial pass belongs to full_solve, so a
+// caller driving the solver step by step still gets no frame at step zero.
+TEST_F(SolverTest, StepAloneDoesNotRunTheInitialPass)
+{
+    solver.step(system, 0.0);
+
+    EXPECT_EQ(1u, log.count("apply_callbacks"));
+    EXPECT_EQ(1u, log.nth("apply_callbacks", 0).step);
+    EXPECT_EQ("0.update_kinematics", log.sequence().front());
+}
+
+TEST_F(SolverTest, TheInitialPassRunsOncePerFullSolve)
+{
+    solver.full_solve(system, 0.0, 1.0);
+
+    const std::vector<Call> callbacks = log.filter("apply_callbacks");
+    ASSERT_EQ(5u, callbacks.size());
+    // Exactly one frame at step zero, then one per step.
+    EXPECT_EQ(0u, callbacks.front().step);
+    for (std::size_t idx = 1; idx < callbacks.size(); ++idx)
+    {
+        EXPECT_EQ(idx, callbacks[idx].step);
+    }
+}
+
+// The initial pass does not disturb the step counter or the returned clock.
+TEST_F(SolverTest, TheInitialPassLeavesTheCounterAtZero)
+{
+    solver.full_solve(system, 0.0, kDt);
+
+    // One step ran after the initial pass.
+    EXPECT_EQ(1u, SolverTestPeer<MockSystem>::current_step(solver));
+    EXPECT_EQ(2u, log.count("apply_callbacks"));
+}
+
+// ---------------------------------------------------------------------------
 // full_solve()
 // ---------------------------------------------------------------------------
 
@@ -851,7 +972,8 @@ TEST_F(SolverTest, FullSolveRunsExpectedNumberOfSteps)
 {
     const double result = solver.full_solve(system, 0.0, 1.0);
 
-    EXPECT_EQ(4u, log.count("apply_callbacks"));
+    // Four steps, plus the frame recorded before the first one.
+    EXPECT_EQ(5u, log.count("apply_callbacks"));
     EXPECT_EQ(1.0, result);
 }
 
@@ -859,20 +981,22 @@ TEST_F(SolverTest, FullSolveHonoursNonZeroStart)
 {
     const double result = solver.full_solve(system, 5.0, 6.0);
 
-    EXPECT_EQ(4u, log.count("apply_callbacks"));
+    EXPECT_EQ(5u, log.count("apply_callbacks"));
     EXPECT_EQ(6.0, result);
 
     // The origin is no longer observable after the run (reset() clears it), so
     // verify it through the stage times the subsystems actually received.
     EXPECT_DOUBLE_EQ(5.0, log.nth("update_kinematics", 0).time);
-    EXPECT_DOUBLE_EQ(6.0, log.nth("apply_callbacks", 3).time);
+    EXPECT_DOUBLE_EQ(5.0, log.nth("apply_callbacks", 0).time);
+    EXPECT_DOUBLE_EQ(6.0, log.nth("apply_callbacks", 4).time);
 }
 
 TEST_F(SolverTest, FullSolveAcceptsExactlyOneStep)
 {
     const double result = solver.full_solve(system, 0.0, kDt);
 
-    EXPECT_EQ(1u, log.count("apply_callbacks"));
+    // The initial frame plus the one step.
+    EXPECT_EQ(2u, log.count("apply_callbacks"));
     EXPECT_EQ(kDt, result);
 }
 
@@ -887,7 +1011,8 @@ TEST(SolverFullSolve, SilentlyOvershootsNonMultipleInterval)
 
     const double result = solver.full_solve(system, 0.0, 1.25);
 
-    EXPECT_EQ(3u, log.count("apply_callbacks"));
+    // Three steps, plus the initial frame.
+    EXPECT_EQ(4u, log.count("apply_callbacks"));
     EXPECT_EQ(1.5, result) << "integrated past the requested end time";
 }
 
@@ -910,6 +1035,13 @@ TEST_F(SolverDeathTest, FullSolveRejectsNaNInterval)
     const double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_ASSERT_ABORT(solver.full_solve(system, 0.0, nan));
     EXPECT_ASSERT_ABORT(solver.full_solve(system, nan, 1.0));
+}
+
+// The interval check runs before the initial pass, so a rejected run records
+// nothing at all rather than leaving a stray frame at step zero.
+TEST_F(SolverDeathTest, ARejectedRunRecordsNothing)
+{
+    EXPECT_ASSERT_ABORT(solver.full_solve(system, 0.0, 0.5 * kDt));
 }
 
 #endif  // GTEST_HAS_DEATH_TEST
@@ -942,16 +1074,16 @@ TEST_F(SolverTest, SecondFullSolveUsesCorrectStageTimes)
                      log.nth("update_kinematics", 2 * kSubSystemCount).time);
 
     const std::vector<Call> callbacks = log.filter("apply_callbacks");
-    ASSERT_EQ(4u, callbacks.size());
+    ASSERT_EQ(5u, callbacks.size());
+    // The initial frame sits at the start time, then one per step after it.
     for (std::size_t idx = 0; idx < callbacks.size(); ++idx)
     {
-        EXPECT_DOUBLE_EQ(10.0 + static_cast<double>(idx + 1) * kDt,
-                         callbacks[idx].time);
+        EXPECT_DOUBLE_EQ(10.0 + static_cast<double>(idx) * kDt, callbacks[idx].time);
     }
 }
 
 // Characterization, not endorsement: because reset() zeroes the counter at the
-// end of every run, callbacks in a segmented simulation see 1..N repeatedly
+// end of every run, callbacks in a segmented simulation see 0..N repeatedly
 // rather than a monotonically increasing global step index. A callback that
 // writes output keyed on the step number will overwrite the first segment's
 // results with the second's.
@@ -961,11 +1093,29 @@ TEST_F(SolverTest, FullSolveRestartsCallbackStepIndexingEachRun)
     solver.full_solve(system, 1.0, 2.0);
 
     const std::vector<Call> callbacks = log.filter("apply_callbacks");
-    ASSERT_EQ(8u, callbacks.size());
+    ASSERT_EQ(10u, callbacks.size());
 
-    const std::vector<std::uint64_t> expected = {1, 2, 3, 4, 1, 2, 3, 4};
+    const std::vector<std::uint64_t> expected = {0, 1, 2, 3, 4, 0, 1, 2, 3, 4};
     std::vector<std::uint64_t> actual;
     for (const Call& call : callbacks) actual.push_back(call.step);
     EXPECT_EQ(expected, actual);
 }
-}  // namespace math::cosserat
+
+// Each run re-records its own starting state, so a segmented simulation has a
+// frame at the seam from both sides.
+TEST_F(SolverTest, EachRunRecordsItsOwnStartingState)
+{
+    solver.full_solve(system, 0.0, 1.0);
+    solver.full_solve(system, 1.0, 2.0);
+
+    const std::vector<Call> callbacks = log.filter("apply_callbacks");
+    ASSERT_EQ(10u, callbacks.size());
+
+    // Last frame of the first run and first frame of the second are the same
+    // instant, recorded twice.
+    EXPECT_DOUBLE_EQ(1.0, callbacks[4].time);
+    EXPECT_DOUBLE_EQ(1.0, callbacks[5].time);
+    EXPECT_EQ(4u, callbacks[4].step);
+    EXPECT_EQ(0u, callbacks[5].step);
+}
+}  // namespace cosserat::simulation

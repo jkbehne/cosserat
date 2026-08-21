@@ -71,12 +71,12 @@ EndpointForceSinusoidal::EndpointForceSinusoidal(
         "Normal and tangent vectors aren't orthogonal"
     );
     utils::nice_assert(
-        std::isfinite(m_first_link_magnitude) and m_first_link_magnitude > 0.0,
-        "Expected first_link_magnitude to be finite and greater than zero"
+        std::isfinite(m_first_link_magnitude) and m_first_link_magnitude >= 0.0,
+        "Expected first_link_magnitude to be finite and non-negative"
     );
     utils::nice_assert(
-        std::isfinite(m_last_link_magnitude) and m_last_link_magnitude > 0.0,
-        "Expected last_link_magnitude to be finite and greater than zero"
+        std::isfinite(m_last_link_magnitude) and m_last_link_magnitude >= 0.0,
+        "Expected last_link_magnitude to be finite and non-negative"
     );
     utils::nice_assert(
         std::isfinite(m_onset_time), "Onset time must be finite"
