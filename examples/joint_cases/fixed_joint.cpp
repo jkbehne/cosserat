@@ -138,6 +138,8 @@ const std::string DEFAULT_LOG_LEVEL = "info";
 const std::string DEFAULT_LOG_DIR = "";
 const std::string DEFAULT_LOG_NAME = "";
 
+constexpr double tolerance = 1e-12;
+
 using ParseReturnType = std::pair<cxxopts::ParseResult, cxxopts::Options>;
 
 /**
@@ -319,7 +321,7 @@ int run_simulation(
         return std::make_shared<BodyVariant>(
             straight_cosserat_rod(
                 num_elements, s, direction, normal, base_length, base_radius, density,
-                youngs_modulus, false /* respect_radii */
+                youngs_modulus, false /* respect_radii */, tolerance
             )
         );
     };

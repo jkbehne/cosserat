@@ -66,7 +66,7 @@ CosseratRod make_rod(double start_z)
 {
     return straight_cosserat_rod(
         6, Eigen::Vector3d(0.0, 0.0, start_z), Eigen::Vector3d::UnitZ(),
-        Eigen::Vector3d::UnitY(), 0.2, 0.007, 1750.0, 3.0e7, false);
+        Eigen::Vector3d::UnitY(), 0.2, 0.007, 1750.0, 3.0e7, false, 1e-12 /* tolerance */);
 }
 
 TEST(BodyRuleCompatibility, ForcesApplyToBothBodyKinds)

@@ -608,7 +608,7 @@ TEST(InterfaceAgreement, ATemplatedStepDrivesEitherBody)
     Cylinder cylinder = make_cylinder();
     CosseratRod rod = straight_cosserat_rod(
         4, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitZ(),
-        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1e6, false);
+        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1e6, false, kTol);
 
     const Eigen::Vector3d force(0.0, 0.0, 1.0);
     const auto sphere_acceleration = step(sphere, force);

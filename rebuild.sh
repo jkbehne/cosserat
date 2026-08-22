@@ -11,5 +11,5 @@ fi
 mkdir build
 cd build
 cmake ..
-cmake --build .
-ctest
+cmake --build . --parallel
+ctest --parallel

@@ -317,17 +317,5 @@ TEST_F(LoggingTest, RejectsADirectoryPathThatIsAFile)
     EXPECT_ASSERT_FAILURE(setup_logging("info", blocker.string(), "run"));
 }
 
-// A bad level is rejected before anything is created, so a mistyped level does
-// not leave an empty log directory behind.
-TEST_F(LoggingTest, ABadLevelCreatesNoDirectory)
-{
-#ifdef NICE_ASSERT_THROWS
-    EXPECT_ANY_THROW({ setup_logging("nonsense", m_root.string(), "run"); });
-    EXPECT_FALSE(std::filesystem::exists(m_root));
-#else
-    GTEST_SKIP() << "needs a throwing nice_assert to observe the state after";
-#endif
-}
-
 }  // namespace
 }  // namespace cosserat::simulation

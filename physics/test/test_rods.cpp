@@ -54,7 +54,7 @@ CosseratRod make_rod(bool respect_radii)
     return straight_cosserat_rod(
         kElements, Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(0.0, 0.0, 1.0),
         Eigen::Vector3d(1.0, 0.0, 0.0), kLength, kRadius, kDensity, kYoungs,
-        respect_radii);
+        respect_radii, kTol);
 }
 
 CosseratRod make_rod() { return make_rod(false); }
@@ -593,7 +593,7 @@ CosseratRod make_reference_rod()
     CosseratRod rod = straight_cosserat_rod(
         4, Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(0.0, 0.0, 1.0),
         Eigen::Vector3d(1.0, 0.0, 0.0), 1.0, 0.05, 1000.0, 1.0e6,
-        /*respect_radii=*/false);
+        /*respect_radii=*/false, kTol);
     deform(rod);
     rod.compute_internal_forces_and_torques(0.0);
     return rod;
@@ -723,6 +723,7 @@ TEST_F(RodWriteTest, WriteEmitsConfigurationOnly)
 
     EXPECT_TRUE(pair_exists("positions"));
     EXPECT_TRUE(pair_exists("frames"));
+    EXPECT_TRUE(pair_exists("radii"));
     EXPECT_FALSE(pair_exists("velocities"));
 }
 
@@ -785,7 +786,7 @@ TEST(StraightRodDeathTest, RejectsTooFewElements)
 {
     EXPECT_ASSERT_FAILURE(straight_cosserat_rod(
         2, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitZ(),
-        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1e6, false));
+        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1e6, false, kTol));
 }
 
 TEST(StraightRodDeathTest, RejectsNonPositiveGeometry)
@@ -795,11 +796,11 @@ TEST(StraightRodDeathTest, RejectsNonPositiveGeometry)
     const Eigen::Vector3d nrm = Eigen::Vector3d::UnitX();
 
     EXPECT_ASSERT_FAILURE(
-        straight_cosserat_rod(10, zero, dir, nrm, 0.0, 0.05, 1000.0, 1e6, false));
+        straight_cosserat_rod(10, zero, dir, nrm, 0.0, 0.05, 1000.0, 1e6, false, kTol));
     EXPECT_ASSERT_FAILURE(
-        straight_cosserat_rod(10, zero, dir, nrm, 1.0, 0.0, 1000.0, 1e6, false));
+        straight_cosserat_rod(10, zero, dir, nrm, 1.0, 0.0, 1000.0, 1e6, false, kTol));
     EXPECT_ASSERT_FAILURE(
-        straight_cosserat_rod(10, zero, dir, nrm, 1.0, 0.05, 0.0, 1e6, false));
+        straight_cosserat_rod(10, zero, dir, nrm, 1.0, 0.05, 0.0, 1e6, false, kTol));
 }
 
 TEST(StraightRodDeathTest, RejectsNonUnitOrNonOrthogonalDirections)
@@ -808,14 +809,14 @@ TEST(StraightRodDeathTest, RejectsNonUnitOrNonOrthogonalDirections)
 
     EXPECT_ASSERT_FAILURE(straight_cosserat_rod(
         10, zero, Eigen::Vector3d(0.0, 0.0, 2.0), Eigen::Vector3d::UnitX(),
-        1.0, 0.05, 1000.0, 1e6, false));
+        1.0, 0.05, 1000.0, 1e6, false, kTol));
     EXPECT_ASSERT_FAILURE(straight_cosserat_rod(
         10, zero, Eigen::Vector3d::UnitZ(), Eigen::Vector3d(3.0, 0.0, 0.0),
-        1.0, 0.05, 1000.0, 1e6, false));
+        1.0, 0.05, 1000.0, 1e6, false, kTol));
     // normal parallel to direction
     EXPECT_ASSERT_FAILURE(straight_cosserat_rod(
         10, zero, Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitZ(),
-        1.0, 0.05, 1000.0, 1e6, false));
+        1.0, 0.05, 1000.0, 1e6, false, kTol));
 }
 
 TEST(RodConstructionDeathTest, RejectsFewerThanThreeNodes)

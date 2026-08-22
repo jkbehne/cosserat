@@ -404,7 +404,8 @@ void CosseratRod::write(const std::filesystem::path& write_path) const
 {
     detail::write_storages(
         m_positions, write_path / "positions",
-        m_frames, write_path / "frames"
+        m_frames, write_path / "frames",
+        m_radii, write_path / "radii"
     );
 }
 
@@ -895,6 +896,35 @@ CosseratRod straight_cosserat_rod(
     double tolerance
 )
 {
+    return straight_cosserat_rod(
+        num_elements,
+        start,
+        direction,
+        normal,
+        base_length,
+        base_radius,
+        density,
+        youngs_modulus,
+        youngs_modulus / 3.0,
+        respect_radii,
+        tolerance
+    );
+}
+
+CosseratRod straight_cosserat_rod(
+    std::int64_t num_elements,
+    const Eigen::Vector3d& start,
+    const Eigen::Vector3d& direction,
+    Eigen::Vector3d normal,
+    double base_length,
+    double base_radius,
+    double density,
+    double youngs_modulus,
+    double shear_modulus,
+    bool respect_radii,
+    double tolerance
+)
+{
     nice_assert(num_elements >= 3, "Rod must have at least 3 elements");
     nice_assert(base_length > 0.0, "base_length should be greater than zero");
     nice_assert(base_radius > 0.0, "base_radius should be greater than zero");
@@ -944,7 +974,8 @@ CosseratRod straight_cosserat_rod(
         std::move(rest_lengths),
         {}, /* rest_kappas */
         respect_radii,
-        youngs_modulus
+        youngs_modulus,
+        shear_modulus
     );
 }
 } // End namespace cosserat::physics

@@ -23,9 +23,12 @@ from cosserat_python_tools.utils.binary_file_utils import (
     METADATA_EXTENSION,
     ROW_MAJOR,
     find_stems,
+    get_cosserat_rods_from_dir,
+    get_cosserat_rods_from_step_dir,
     load_directory,
     load_matrix,
     load_matrix_from_stem,
+    parse_step_time,
     read_metadata,
 )
 
@@ -401,3 +404,283 @@ def test_load_directory_reads_every_pair(tmp_path: Path) -> None:
 
 def test_load_directory_is_empty_for_an_empty_directory(tmp_path: Path) -> None:
     assert load_directory(tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Step directory helpers
+# ---------------------------------------------------------------------------
+
+
+def write_rod_body(body_dir: Path, num_elements: int = 6, z_offset: float = 0.0) -> Path:
+    """@brief Writes the three matrix pairs that make a body readable as a rod.
+
+    Mirrors what the C++ writer emits for a rod: node positions as one matrix,
+    element frames as a batch of three by three blocks, and element radii as a
+    column vector.
+
+    @param body_dir Directory to write into.
+    @param num_elements Elements in the rod.
+    @param z_offset Height to place the rod's base at.
+    @return The directory, for chaining.
+    """
+    positions = np.zeros((num_elements + 1, 3))
+    positions[:, 2] = z_offset + np.linspace(0.0, 1.0, num_elements + 1)
+    write_matrix_pair(body_dir / "positions", positions, COLUMN_MAJOR)
+
+    frames = np.tile(np.eye(3), (num_elements, 1, 1))
+    write_batch_pair(body_dir / "frames", frames, COLUMN_MAJOR)
+
+    radii = np.full((num_elements, 1), 0.05)
+    write_matrix_pair(body_dir / "radii", radii, COLUMN_MAJOR)
+    return body_dir
+
+
+def write_step_tree(
+    root: Path,
+    num_steps: int = 4,
+    body_names: tuple[str, ...] = ("rod1", "rod2"),
+    time_step: float = 0.1,
+) -> Path:
+    """@brief Writes a tree of step directories, each holding several rods.
+
+    @param root Directory to write the step directories beneath.
+    @param num_steps Number of steps to write.
+    @param body_names Body subdirectory to create in every step.
+    @param time_step Simulation time between consecutive steps.
+    @return The root, for chaining.
+    """
+    for step in range(num_steps):
+        step_dir = root / f"step_{step:09d}_st_{time_step * step:.3f}"
+        for index, name in enumerate(body_names):
+            write_rod_body(step_dir / name, z_offset=float(index))
+    return root
+
+
+# ---------------------------------------------------------------------------
+# parse_step_time
+# ---------------------------------------------------------------------------
+
+
+def test_parse_step_time_reads_the_trailing_field() -> None:
+    assert parse_step_time(Path("step_000000042_st_0.420")) == pytest.approx(0.420)
+
+
+def test_parse_step_time_accepts_a_bare_name() -> None:
+    assert parse_step_time("step_000001000_st_12.345") == pytest.approx(12.345)
+
+
+def test_parse_step_time_accepts_a_negative_time() -> None:
+    assert parse_step_time("step_000000001_st_-1.250") == pytest.approx(-1.25)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "step_000000000_st",  # too few fields
+        "step_000000000_st_0.000_extra",  # too many
+        "frame_000000000_st_0.000",  # wrong prefix
+        "step_000000000_tt_0.000",  # wrong separator
+    ],
+)
+def test_parse_step_time_rejects_a_malformed_name(name: str) -> None:
+    with pytest.raises(ValueError, match="step_<number>_st_<time>"):
+        parse_step_time(name)
+
+
+def test_parse_step_time_rejects_a_non_numeric_time() -> None:
+    with pytest.raises(ValueError, match="numeric time"):
+        parse_step_time("step_000000000_st_later")
+
+
+# ---------------------------------------------------------------------------
+# get_cosserat_rods_from_step_dir
+# ---------------------------------------------------------------------------
+
+
+def test_reads_every_rod_in_a_step(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000003_st_0.300"
+    write_rod_body(step_dir / "rod1")
+    write_rod_body(step_dir / "rod2")
+
+    time, rods = get_cosserat_rods_from_step_dir(step_dir)
+
+    assert time == pytest.approx(0.3)
+    assert len(rods) == 2
+    assert all(rod.num_elements == 6 for rod in rods)
+
+
+# Bodies are read in name order, not in whatever order the filesystem returns,
+# so a body keeps its position in the list at every step. Anything styling
+# bodies by index depends on that.
+def test_bodies_are_returned_in_name_order(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    for index, name in enumerate(("zulu", "alpha", "mike")):
+        write_rod_body(step_dir / name, z_offset=float(index))
+
+    _, rods = get_cosserat_rods_from_step_dir(step_dir)
+
+    # alpha was written at z=1, mike at z=2, zulu at z=0.
+    bases = [float(rod.positions[0, 2]) for rod in rods]
+    assert bases == [1.0, 2.0, 0.0]
+
+
+# A body that wrote no radii, such as a rigid body, is not a rod and is passed
+# over rather than failing the whole step.
+def test_bodies_without_radii_are_skipped(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    write_rod_body(step_dir / "rod")
+    sphere = step_dir / "sphere"
+    write_matrix_pair(sphere / "positions", np.zeros((1, 3)), COLUMN_MAJOR)
+    write_batch_pair(sphere / "frames", np.tile(np.eye(3), (1, 1, 1)), COLUMN_MAJOR)
+
+    _, rods = get_cosserat_rods_from_step_dir(step_dir)
+
+    assert len(rods) == 1
+
+
+def test_a_step_with_no_rods_raises_by_default(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    write_matrix_pair(step_dir / "sphere" / "positions", np.zeros((1, 3)), COLUMN_MAJOR)
+
+    with pytest.raises(ValueError, match="Couldn't find any rod-like object"):
+        get_cosserat_rods_from_step_dir(step_dir)
+
+
+def test_a_step_with_no_rods_can_be_tolerated(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    write_matrix_pair(step_dir / "sphere" / "positions", np.zeros((1, 3)), COLUMN_MAJOR)
+
+    time, rods = get_cosserat_rods_from_step_dir(step_dir, raise_if_no_rods=False)
+
+    assert time == pytest.approx(0.0)
+    assert rods == []
+
+
+def test_a_step_with_no_body_directories_is_rejected(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    step_dir.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="at least one body directory"):
+        get_cosserat_rods_from_step_dir(step_dir)
+
+
+def test_a_missing_step_directory_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(NotADirectoryError):
+        get_cosserat_rods_from_step_dir(tmp_path / "nope")
+
+
+# A half written body, with metadata but no payload, is not rod-like, because
+# find_stems only reports complete pairs.
+def test_a_partially_written_body_is_not_rod_like(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_000000000_st_0.000"
+    write_rod_body(step_dir / "rod")
+    (step_dir / "rod" / ("radii" + BINARY_EXTENSION)).unlink()
+
+    with pytest.raises(ValueError, match="Couldn't find any rod-like object"):
+        get_cosserat_rods_from_step_dir(step_dir)
+
+
+# ---------------------------------------------------------------------------
+# get_cosserat_rods_from_dir
+# ---------------------------------------------------------------------------
+
+
+def test_reads_every_step_in_the_tree(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=5)
+
+    frames = get_cosserat_rods_from_dir(tmp_path)
+
+    assert len(frames) == 5
+    assert all(len(rods) == 2 for _, rods in frames)
+
+
+# The whole reason the writer zero pads the step number. Reading in iterdir
+# order returns the steps in filesystem order, which is not sorted, and gives a
+# frame sequence that jumps back and forth in time.
+def test_steps_come_back_in_step_order(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=12)
+
+    times = [time for time, _ in get_cosserat_rods_from_dir(tmp_path)]
+
+    assert times == sorted(times)
+    assert times == pytest.approx([0.1 * step for step in range(12)])
+
+
+# Ten steps is where name order and numeric order would diverge without the
+# padding, so a scrambled reader shows up here even on a small tree.
+def test_step_order_survives_crossing_a_power_of_ten(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=11)
+
+    times = [time for time, _ in get_cosserat_rods_from_dir(tmp_path)]
+
+    assert times == sorted(times)
+    assert times[-1] == pytest.approx(1.0)
+
+
+def test_directories_that_are_not_steps_are_ignored(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=3)
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "notes.txt").write_text("not a step", encoding="utf-8")
+
+    frames = get_cosserat_rods_from_dir(tmp_path)
+
+    assert len(frames) == 3
+
+
+def test_a_tree_with_no_steps_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "logs").mkdir()
+
+    with pytest.raises(ValueError, match="No step_\\* directories"):
+        get_cosserat_rods_from_dir(tmp_path)
+
+
+def test_a_missing_tree_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(NotADirectoryError):
+        get_cosserat_rods_from_dir(tmp_path / "nope")
+
+
+def test_tolerating_empty_steps_propagates_to_every_step(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=2)
+    empty = tmp_path / "step_000000002_st_0.200"
+    write_matrix_pair(empty / "sphere" / "positions", np.zeros((1, 3)), COLUMN_MAJOR)
+
+    frames = get_cosserat_rods_from_dir(tmp_path, raise_if_no_rods=False)
+
+    assert [len(rods) for _, rods in frames] == [2, 2, 0]
+
+
+def test_a_string_path_is_accepted(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=2)
+
+    assert len(get_cosserat_rods_from_dir(str(tmp_path))) == 2
+
+
+# The rods come back fully constructed, so their meshes can be built directly.
+def test_the_rods_returned_can_be_meshed(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=2, body_names=("rod",))
+
+    _, rods = get_cosserat_rods_from_dir(tmp_path)[0]
+    x_grid, y_grid, z_grid = rods[0].to_mesh(12)
+
+    assert x_grid.shape == (rods[0].num_nodes, 13)
+    assert np.isfinite(x_grid).all()
+    assert np.hypot(x_grid, y_grid) == pytest.approx(0.05, abs=1e-12)
+
+
+# The shape of the result is exactly what the animation utilities take as their
+# frame sequence, which is the point of the whole reader.
+def test_the_result_is_a_usable_frame_sequence(tmp_path: Path) -> None:
+    write_step_tree(tmp_path, num_steps=4)
+
+    frames = get_cosserat_rods_from_dir(tmp_path)
+
+    assert isinstance(frames, list)
+    for entry in frames:
+        time, rods = entry
+        assert isinstance(time, float)
+        assert isinstance(rods, list)
+        assert all(hasattr(rod, "to_mesh") for rod in rods)
+
+    times = [time for time, _ in frames]
+    intervals = np.diff(times)
+    assert intervals == pytest.approx(intervals[0])

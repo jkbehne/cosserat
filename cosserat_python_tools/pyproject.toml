@@ -10,4 +10,7 @@ authors = [{ name = "Josh Behne", email = "joshbehne@gmail.com" }]
 dependencies = [
     "numpy",
     "pytest",
+    "scipy",
+    "matplotlib",
+    "fire",
 ]

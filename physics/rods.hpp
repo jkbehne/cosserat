@@ -638,6 +638,44 @@ CosseratRod straight_cosserat_rod(
     double density,
     double youngs_modulus,
     bool respect_radii,
-    double tolerance = 1e-12
+    double tolerance
+);
+
+/**
+ * @brief Builds a straight rod of uniform radius and density.
+ *
+ * Nodes are spaced evenly from @p start along @p direction, and every element
+ * receives the same frame, built from @p normal and @p direction so that its
+ * third row is the tangent.
+ *
+ * @param num_elements Number of elements; at least three.
+ * @param start Position of the first node.
+ * @param direction Unit vector along the rod.
+ * @param normal Unit vector orthogonal to @p direction, fixing the roll of the
+ *        material frame.
+ * @param base_length Total rod length.
+ * @param base_radius Uniform element radius.
+ * @param density Uniform density.
+ * @param youngs_modulus Young's modulus
+ * @param shear_modulus Shear modulus
+ * @param respect_radii When true the radius is held fixed and volume follows
+ *        the current length. Pass false to hold volume instead, which is what
+ *        the reference implementation does.
+ * @param tolerance Tolerance for the unit-vector and orthogonality checks on
+ *        @p direction and @p normal.
+ * @return The constructed rod.
+ */
+CosseratRod straight_cosserat_rod(
+    std::int64_t num_elements,
+    const Eigen::Vector3d& start,
+    const Eigen::Vector3d& direction,
+    Eigen::Vector3d normal,
+    double base_length,
+    double base_radius,
+    double density,
+    double youngs_modulus,
+    double shear_modulus,
+    bool respect_radii,
+    double tolerance
 );
 } // End namespace cosserat::physics

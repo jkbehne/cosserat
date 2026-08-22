@@ -630,4 +630,19 @@ if(BUILD_EXAMPLES)
     if (ENABLE_PROFILING)
         target_compile_options(fixed_joint PRIVATE ${PROJECT_PROFILING})
     endif()
+
+    add_executable(fixed_joint_torsion examples/joint_cases/fixed_joint_torsion.cpp)
+    target_link_libraries(fixed_joint_torsion
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+    )
+    target_compile_options(fixed_joint_torsion PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(fixed_joint_torsion PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(fixed_joint_torsion PRIVATE ${PROJECT_PROFILING})
+    endif()
 endif()

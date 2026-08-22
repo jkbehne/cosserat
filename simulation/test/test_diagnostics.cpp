@@ -56,7 +56,7 @@ physics::CosseratRod make_rod()
 {
     return physics::straight_cosserat_rod(
         4, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitZ(),
-        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1.0e6, false);
+        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1.0e6, false, 1e-12 /* tolerance */);
 }
 
 physics::Sphere make_sphere()

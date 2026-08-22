@@ -10,6 +10,22 @@ This module reverses that: given the pair, it returns a NumPy array of the
 right shape and dtype. Arrays are squeezed, so a stored Eigen column vector
 comes back one-dimensional rather than as an @c (n, 1) column.
 
+On top of that, the module walks the directory tree the diagnostics produce:
+
+@verbatim
+  base/step_000000000_st_0.000/rod1/positions.bin
+                                   /positions.md.json
+                                   /frames.bin ...
+                              /rod2/...
+      step_000001000_st_0.100/...
+@endverbatim
+
+@ref get_cosserat_rods_from_dir turns that tree into the sequence of
+@c (time, rods) pairs the animation utilities consume, ordered by step. The
+step number is zero padded by the writer so that sorting names and sorting
+steps agree, and this module relies on that: change the padding width and the
+frames come back out of order.
+
 @note Only @c double is written by the C++ side. Other scalar types are
       rejected rather than guessed at.
 """
@@ -22,6 +38,10 @@ from typing import Any, Final
 
 import numpy as np
 from numpy.typing import NDArray
+
+from cosserat_python_tools.rods.discrete_cosserat_rod import (
+    DiscreteCosseratRod
+)
 
 ## @brief Extension used for the raw binary payload.
 BINARY_EXTENSION: Final[str] = ".bin"
@@ -46,6 +66,12 @@ REQUIRED_KEYS: Final[tuple[str, ...]] = (
 ## @brief Storage order names the reader understands.
 ROW_MAJOR: Final[str] = "row_major"
 COLUMN_MAJOR: Final[str] = "column_major"
+
+## @brief Leading field of a step directory's name, as written by the C++ side.
+STEP_DIRECTORY_PREFIX: Final[str] = "step"
+
+## @brief Stems a body must have written for it to be read back as a rod.
+ROD_STEM_NAMES: Final[tuple[str, ...]] = ("positions", "frames", "radii")
 
 
 def read_metadata(metadata_path: Path | str) -> dict[str, Any]:
@@ -204,3 +230,140 @@ def load_directory(directory: Path | str) -> dict[str, NDArray[np.float64]]:
     @throws ValueError If any pair in the directory is inconsistent.
     """
     return {stem.name: load_matrix_from_stem(stem) for stem in find_stems(directory)}
+
+def get_cosserat_rods_from_step_dir(
+    step_dir: Path | str,
+    raise_if_no_rods: bool = True,
+) -> tuple[float, list[DiscreteCosseratRod]]:
+    """@brief Reads every rod written into one step directory.
+
+    A step directory holds one subdirectory per body, each containing the
+    matrix pairs that body wrote. A body is treated as a rod when it has all
+    three of @c positions, @c frames and @c radii; anything else is skipped,
+    which is how rigid bodies are passed over, since they write no radii.
+
+    Bodies are visited in name order rather than in whatever order the
+    filesystem hands back, so a body occupies the same position in the returned
+    list at every step. Callers that style bodies by index, such as giving each
+    rod its own colour, depend on that being stable across frames.
+
+    @param step_dir Directory named @c step_<number>_st_<time>, as written by
+           the C++ diagnostics.
+    @param raise_if_no_rods When true, a step containing no rod-like body is an
+           error rather than an empty result.
+    @return The simulation time parsed from the directory name, paired with the
+            rods found inside it.
+    @throws NotADirectoryError If @p step_dir is not a directory.
+    @throws ValueError If the directory holds no body subdirectories, if its
+            name does not match the expected form, or if @p raise_if_no_rods is
+            set and nothing rod-like was found.
+
+    @note The time comes from the directory name, which the writer rounds to
+          three decimals. It is therefore a label rather than the exact
+          simulation time, which is fine for ordering and for animation but
+          should not be treated as authoritative.
+    """
+    step_path = Path(step_dir).expanduser()
+    if not step_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {step_path}")
+
+    rod_list: list[DiscreteCosseratRod] = []
+    body_dirs = sorted(
+        body_dir for body_dir in step_path.iterdir() if body_dir.is_dir()
+    )
+    if len(body_dirs) < 1:
+        raise ValueError(
+            f"Expected at least one body directory in directory {step_path}"
+        )
+
+    for body_dir in body_dirs:
+        available_stems = find_stems(body_dir)
+        is_rod_like = all(
+            body_dir / name in available_stems for name in ROD_STEM_NAMES
+        )
+        if is_rod_like:
+            rod_list.append(
+                DiscreteCosseratRod(
+                    positions=load_matrix_from_stem(body_dir / "positions"),
+                    frames=load_matrix_from_stem(body_dir / "frames"),
+                    radii=load_matrix_from_stem(body_dir / "radii"),
+                )
+            )
+
+    if len(rod_list) == 0 and raise_if_no_rods:
+        raise ValueError(f"Couldn't find any rod-like object in {step_path}")
+
+    return parse_step_time(step_path), rod_list
+
+
+def parse_step_time(step_dir: Path | str) -> float:
+    """@brief Recovers the simulation time from a step directory's name.
+
+    The writer names each step directory @c step_<number>_st_<time>, so the
+    time is the final underscore-separated field.
+
+    @param step_dir The directory, or just its name.
+    @return The time the name records.
+    @throws ValueError If the name does not have the expected four fields, or
+            if the final field is not a number.
+    """
+    name = Path(step_dir).name
+    fields = name.split("_")
+    if len(fields) != 4 or fields[0] != STEP_DIRECTORY_PREFIX or fields[2] != "st":
+        raise ValueError(
+            f"Expected a directory named step_<number>_st_<time>, got {name!r}"
+        )
+    try:
+        return float(fields[-1])
+    except ValueError as error:
+        raise ValueError(
+            f"Step directory {name!r} does not end in a numeric time"
+        ) from error
+
+
+def get_cosserat_rods_from_dir(
+    directory: Path | str,
+    raise_if_no_rods: bool = True,
+) -> list[tuple[float, list[DiscreteCosseratRod]]]:
+    """@brief Reads every step directory beneath a diagnostics root.
+
+    The result is ordered by step directory name, which is also step order:
+    the writer zero pads the step number precisely so that sorting by name and
+    sorting by step agree. Reading in @c iterdir order instead returns the
+    steps in whatever order the filesystem stored them, which is not sorted,
+    and produces a frame sequence that jumps back and forth in time.
+
+    The returned list of @c (time, rods) pairs is exactly the frame sequence
+    the animation utilities consume.
+
+    @param directory Root the diagnostics wrote beneath, holding one
+           subdirectory per recorded step.
+    @param raise_if_no_rods When true, a step containing no rod-like body is an
+           error rather than an empty entry.
+    @return One @c (time, rods) pair per step, in step order.
+    @throws NotADirectoryError If @p directory is not a directory.
+    @throws ValueError If no step directories are present, or if any step
+            cannot be read.
+    """
+    dir_path = Path(directory).expanduser()
+    if not dir_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {dir_path}")
+
+    # Sorted, and filtered to the writer's naming scheme so that unrelated
+    # directories sitting alongside the output are ignored rather than parsed.
+    step_dirs = sorted(
+        step_dir
+        for step_dir in dir_path.glob(f"{STEP_DIRECTORY_PREFIX}_*")
+        if step_dir.is_dir()
+    )
+    if not step_dirs:
+        raise ValueError(
+            f"No {STEP_DIRECTORY_PREFIX}_* directories found in {dir_path}"
+        )
+
+    return [
+        get_cosserat_rods_from_step_dir(
+            step_dir=step_dir, raise_if_no_rods=raise_if_no_rods
+        )
+        for step_dir in step_dirs
+    ]

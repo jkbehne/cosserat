@@ -48,7 +48,7 @@ CosseratRod make_rod(std::int64_t elements = 4)
 {
     return straight_cosserat_rod(
         elements, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitZ(),
-        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1.0e6, false);
+        Eigen::Vector3d::UnitX(), 1.0, 0.05, 1000.0, 1.0e6, false, kTol);
 }
 
 Sphere make_sphere() { return Sphere(Eigen::Vector3d::Zero(), 0.1, 1000.0); }

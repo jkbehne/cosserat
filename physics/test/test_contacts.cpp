@@ -55,7 +55,7 @@ CosseratRod make_rod(const Eigen::Vector3d& start, const Eigen::Vector3d& direct
     normal = (normal - normal.dot(direction) * direction).normalized();
 
     return straight_cosserat_rod(elements, start, direction, normal, length, radius,
-                                 1000.0, 1.0e6, false);
+                                 1000.0, 1.0e6, false, kTol);
 }
 
 Sphere make_sphere(const Eigen::Vector3d& center, double radius = 0.1)

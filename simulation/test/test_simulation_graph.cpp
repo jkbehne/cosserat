@@ -36,7 +36,7 @@ std::shared_ptr<physics::BodyVariant> make_rod_ptr(
 {
     return std::make_shared<physics::BodyVariant>(physics::straight_cosserat_rod(
         elements, start, Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY(),
-        length, 0.007, 1750.0, 3.0e7, /*respect_radii=*/false));
+        length, 0.007, 1750.0, 3.0e7, /*respect_radii=*/false, kTol));
 }
 
 std::shared_ptr<physics::BodyVariant> make_sphere_ptr()
