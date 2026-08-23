@@ -16,11 +16,6 @@
  */
 
 #include <Eigen/Core>
-#include <Eigen/Dense>
-
-#include "math/linalg.hpp"
-
-#include "utils/assertions.hpp"
 
 namespace cosserat::physics {
 
@@ -47,22 +42,7 @@ public: // Methods
      * @param origin Any point on the plane.
      * @param normal Unit vector normal to the plane.
      */
-    Plane(const Eigen::Vector3d& origin, const Eigen::Vector3d& normal)
-        : m_origin(origin), m_normal(normal)
-    {
-        utils::nice_assert(
-            origin.array().isFinite().all(), "Plane origin must be finite"
-        );
-        utils::nice_assert(
-            math::is_unit_vector(normal, tolerance), "Plane normal must be a unit vector"
-        );
-    }
-
-    /** @brief A point on the plane. */
-    const Eigen::Vector3d& origin() const {return m_origin;}
-
-    /** @brief Unit normal to the plane. */
-    const Eigen::Vector3d& normal() const {return m_normal;}
+    Plane(const Eigen::Vector3d& origin, const Eigen::Vector3d& normal);
 
     /**
      * @brief Signed distance from the plane to a point.
@@ -72,9 +52,12 @@ public: // Methods
      * @param point Point to measure.
      * @return The signed distance.
      */
-    double signed_distance(const Eigen::Vector3d& point) const
-    {
-        return m_normal.dot(point - m_origin);
-    }
+    double signed_distance(const Eigen::Vector3d& point) const;
+
+    /** @brief A point on the plane. */
+    const Eigen::Vector3d& origin() const;
+
+    /** @brief Unit normal to the plane. */
+    const Eigen::Vector3d& normal() const;
 };
 } // End namespace cosserat::physics

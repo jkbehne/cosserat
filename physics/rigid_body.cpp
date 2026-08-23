@@ -398,7 +398,7 @@ Cylinder::Cylinder(
     double base_length,
     double base_radius,
     double density,
-    double tolerance
+    double tolerance_
 )
     : RigidBody(
         // The body is placed at its midpoint, half a length from the start.
@@ -414,11 +414,11 @@ Cylinder::Cylinder(
     // reported rather than the derived frame. The base already rejects a
     // non-orthogonal frame, which is what a bad pair of directions produces.
     nice_assert(
-        math::is_unit_vector(direction, tolerance), "direction must be unit vector"
+        math::is_unit_vector(direction, tolerance_), "direction must be unit vector"
     );
-    nice_assert(math::is_unit_vector(normal, tolerance), "normal must be unit vector");
+    nice_assert(math::is_unit_vector(normal, tolerance_), "normal must be unit vector");
     nice_assert(
-        std::abs(normal.dot(direction)) < tolerance,
+        std::abs(normal.dot(direction)) < tolerance_,
         "direction and normal must be orthogonal"
     );
 }

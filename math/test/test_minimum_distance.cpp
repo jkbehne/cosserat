@@ -1,4 +1,4 @@
-#include "physics/minimum_distance.hpp"
+#include "math/minimum_distance.hpp"
 
 #include <gtest/gtest.h>
 
@@ -7,7 +7,7 @@
 #include <cmath>
 #include <random>
 
-namespace cosserat::physics {
+namespace cosserat::math {
 namespace {
 
 // nice_assert is assumed to abort. If it throws instead, compile with

@@ -29,7 +29,7 @@
 
 #include "math/types.hpp"
 
-namespace cosserat::physics {
+namespace cosserat::math {
 
 /**
  * @brief Closest approach between two segments.

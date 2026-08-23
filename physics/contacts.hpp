@@ -48,9 +48,9 @@
 
 #include <Eigen/Core>
 
+#include "math/minimum_distance.hpp"
 #include "math/types.hpp"
 
-#include "physics/minimum_distance.hpp"
 #include "physics/plane.hpp"
 
 #include "utils/assertions.hpp"
@@ -593,7 +593,7 @@ public: // Methods
     void apply_contact(SystemOne& system_one, SystemTwo& system_two, double time) const
     {
         (void)time;
-        if (prune_rod_rod(
+        if (math::prune_rod_rod(
                 system_one.positions(), system_one.radii(), system_one.lengths(),
                 system_two.positions(), system_two.radii(), system_two.lengths()))
         {
@@ -711,7 +711,7 @@ public: // Methods
         const Eigen::Vector3d center = system_two.positions().row(0).transpose();
         const Eigen::Matrix3d& frame = system_two.frames()[0];
 
-        if (prune_rod_cylinder(
+        if (math::prune_rod_cylinder(
                 system_one.positions(), system_one.radii(), system_one.lengths(),
                 center, frame, system_two.radius(), system_two.length()))
         {
@@ -797,7 +797,7 @@ public: // Methods
         (void)time;
         const Eigen::Vector3d center = system_two.positions().row(0).transpose();
 
-        if (prune_rod_sphere(
+        if (math::prune_rod_sphere(
                 system_one.positions(), system_one.radii(), center,
                 system_two.radius()))
         {

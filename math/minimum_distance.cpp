@@ -1,11 +1,11 @@
-#include "physics/minimum_distance.hpp"
+#include "math/minimum_distance.hpp"
 
 #include <algorithm>
 #include <cmath>
 
 #include "utils/assertions.hpp"
 
-namespace cosserat::physics {
+namespace cosserat::math {
 using utils::nice_assert;
 
 namespace {

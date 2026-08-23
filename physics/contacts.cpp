@@ -154,8 +154,9 @@ void contact_forces_rod_rod(
                 lengths_two(j) * tangents_two.row(j).transpose();
 
             Eigen::Vector3d distance_vector =
-                minimum_distance_segment_segment(
-                    start_one, edge_one, start_two, edge_two).distance_vector;
+                math::minimum_distance_segment_segment(
+                    start_one, edge_one, start_two, edge_two
+                ).distance_vector;
             const double distance = distance_vector.norm();
             // Exactly intersecting axes leave the normal undefined; see
             // contact_normal_tolerance.
@@ -269,8 +270,9 @@ void contact_forces_self_rod(
             const Eigen::Vector3d edge_j = lengths(j) * tangents.row(j).transpose();
 
             Eigen::Vector3d distance_vector =
-                minimum_distance_segment_segment(
-                    start_i, edge_i, start_j, edge_j).distance_vector;
+                math::minimum_distance_segment_segment(
+                    start_i, edge_i, start_j, edge_j
+                ).distance_vector;
             const double distance = distance_vector.norm();
             // Exactly intersecting axes leave the normal undefined; see
             // contact_normal_tolerance.
@@ -380,8 +382,9 @@ void contact_forces_rod_cylinder(
         const Eigen::Vector3d center = element_center.row(i).transpose();
         if ((center - cylinder_tip).norm() >= radii_sum(i) + lengths_sum(i)) continue;
 
-        const auto closest = minimum_distance_segment_segment(
-            center, element_edge.row(i).transpose(), cylinder_tip, cylinder_edge);
+        const auto closest = math::minimum_distance_segment_segment(
+            center, element_edge.row(i).transpose(), cylinder_tip, cylinder_edge
+        );
 
         Eigen::Vector3d distance_vector = closest.distance_vector;
         const double distance = distance_vector.norm();
@@ -463,8 +466,9 @@ void contact_forces_rod_sphere(
         if ((center - sphere_center).norm() >= radii_sum(i) + lengths_sum(i)) continue;
 
         Eigen::Vector3d distance_vector =
-            minimum_distance_segment_point(
-                center, element_edge.row(i).transpose(), sphere_center).distance_vector;
+            math::minimum_distance_segment_point(
+                center, element_edge.row(i).transpose(), sphere_center
+            ).distance_vector;
         const double distance = distance_vector.norm();
         // Exactly intersecting axes leave the normal undefined; see
         // contact_normal_tolerance.

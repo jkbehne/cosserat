@@ -374,6 +374,22 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_minimum_distance math/test/test_minimum_distance.cpp)
+    target_link_libraries(test_minimum_distance
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_minimum_distance PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_minimum_distance
+        PROPERTIES
+            LABELS math
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_forces physics/test/test_forces.cpp)
     target_link_libraries(test_forces
         PRIVATE
@@ -518,22 +534,6 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
-    add_executable(test_minimum_distance physics/test/test_minimum_distance.cpp)
-    target_link_libraries(test_minimum_distance
-        PRIVATE
-            physics::physics
-            math::math
-            utils::utils
-            GTest::gtest
-            GTest::gtest_main
-    )
-    target_compile_options(test_minimum_distance PRIVATE ${PROJECT_STRICT_WARNINGS})
-    gtest_discover_tests(test_minimum_distance
-        PROPERTIES
-            LABELS physics
-        DISCOVERY_TIMEOUT 30
-    )
-
     add_executable(test_contacts physics/test/test_contacts.cpp)
     target_link_libraries(test_contacts
         PRIVATE
@@ -545,6 +545,22 @@ if(BUILD_TESTING)
     )
     target_compile_options(test_contacts PRIVATE ${PROJECT_STRICT_WARNINGS})
     gtest_discover_tests(test_contacts
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_rod_mesh_contact physics/test/test_rod_mesh_contact.cpp)
+    target_link_libraries(test_rod_mesh_contact
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_rod_mesh_contact PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_rod_mesh_contact
         PROPERTIES
             LABELS physics
         DISCOVERY_TIMEOUT 30
