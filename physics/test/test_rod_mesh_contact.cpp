@@ -11,6 +11,7 @@
 #include "physics/rod_mesh_contact.hpp"
 
 #include "math/signed_distance_field.hpp"
+#include "math/triangle_mesh_field.hpp"
 
 #include "physics/rods.hpp"
 
@@ -507,6 +508,91 @@ TEST(RodMeshContactTest, TheForceIsAlongTheLabFrameOutwardNormal)
     // residual of a few parts per million along the rod. The tolerance is well
     // inside that and nowhere near the quarter turn a frame error would give.
     EXPECT_NEAR(total.normalized().dot(Eigen::Vector3d::UnitX()), 1.0, 1e-4);
+}
+
+// ---------------------------------------------------------------------------
+// Against a real triangle mesh
+//
+// The analytic fields above pin the contact law. These pin the mesh backend
+// driving it: a box of twelve triangles is exactly a box, so contact against
+// the mesh and contact against the closed form must agree to the last bits.
+// ---------------------------------------------------------------------------
+
+TEST(RodMeshContactTest, AMeshBoxGivesTheSameForcesAsTheAnalyticBox)
+{
+    const Eigen::Vector3d half_extent(0.5, 0.5, 0.5);
+
+    const math::AnalyticBoxField analytic(Eigen::Vector3d::Zero(), half_extent, 1.0 /* margin */);
+    TestMeshBody analytic_body(analytic);
+    CosseratRod rod_a = make_rod({0.52, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod_a, analytic_body, 0.0);
+
+    const math::TriangleMeshField meshed(
+        math::make_box_mesh(Eigen::Vector3d::Zero(), half_extent), 1.0);
+    TestMeshBody mesh_body(meshed);
+    CosseratRod rod_b = make_rod({0.52, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod_b, mesh_body, 0.0);
+
+    ASSERT_GT(max_force(rod_a), 0.0);
+    EXPECT_LT((rod_a.external_forces() - rod_b.external_forces())
+                  .cwiseAbs().maxCoeff(), 1e-9);
+    EXPECT_LT((analytic_body.external_forces() - mesh_body.external_forces())
+                  .cwiseAbs().maxCoeff(), 1e-9);
+}
+
+TEST(RodMeshContactTest, ARodClearOfAMeshFeelsNothing)
+{
+    const math::TriangleMeshField field(
+        math::make_sphere_mesh(Eigen::Vector3d::Zero(), 0.5, 2), 1.0);
+    TestMeshBody body(field);
+    CosseratRod rod = make_rod({5.0, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod, body, 0.0);
+
+    EXPECT_LT(max_force(rod), kTol);
+}
+
+TEST(RodMeshContactTest, ARodOverlappingAMeshSphereIsPushedOut)
+{
+    const math::TriangleMeshField field(
+        math::make_sphere_mesh(Eigen::Vector3d::Zero(), 0.5, 3), 1.0);
+    TestMeshBody body(field);
+    CosseratRod rod = make_rod({0.52, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod, body, 0.0);
+
+    EXPECT_GT(max_force(rod), 0.0);
+    EXPECT_GT(rod.external_forces().col(0).sum(), 0.0);
+
+    const Eigen::RowVector3d total = rod.external_forces().colwise().sum()
+        + body.external_forces().colwise().sum();
+    EXPECT_LT(total.cwiseAbs().maxCoeff(), 1e-9);
+}
+
+// The mesh field is in body coordinates like any other, so the same round trip
+// has to hold: turning a body whose mesh is rotationally symmetric changes
+// nothing about the physics.
+TEST(RodMeshContactTest, TurningABodyWithAMeshFieldChangesNothing)
+{
+    const math::TriangleMeshField field(
+        math::make_sphere_mesh(Eigen::Vector3d::Zero(), 0.5, 3), 1.0);
+
+    TestMeshBody square(field);
+    CosseratRod rod_a = make_rod({0.52, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod_a, square, 0.0);
+
+    const Eigen::Matrix3d turned =
+        Eigen::AngleAxisd(0.9, Eigen::Vector3d(1.0, 2.0, 3.0).normalized())
+            .toRotationMatrix();
+    TestMeshBody rotated(field, Eigen::Vector3d::Zero(), turned);
+    CosseratRod rod_b = make_rod({0.52, -0.5, 0.0}, Eigen::Vector3d::UnitY());
+    RodMeshContact(1.0e4, 0.0, 0.0, 0.0).apply_contact(rod_b, rotated, 0.0);
+
+    ASSERT_GT(max_force(rod_a), 0.0);
+    // Faceting means the sphere is not perfectly symmetric, so this is a loose
+    // agreement rather than an exact one.
+    EXPECT_LT((rod_a.external_forces() - rod_b.external_forces())
+                  .cwiseAbs().maxCoeff(), 0.05 * max_force(rod_a));
 }
 
 TEST(RodMeshContactDeathTest, RejectsBadCoefficients)

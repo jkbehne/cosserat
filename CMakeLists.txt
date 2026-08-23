@@ -173,6 +173,16 @@ target_include_directories(math ${MATH_SCOPE}
     "$<INSTALL_INTERFACE:include>"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/eigen"
 )
+
+# TriangleMeshDistance backs math/triangle_mesh_field.cpp. PRIVATE because the
+# header hides it behind a pointer to an incomplete type, so nothing that links
+# math needs this path. SYSTEM because it is third party code and must not be
+# held to the project's -Werror set.
+if(MATH_SOURCES)
+    target_include_directories(math SYSTEM PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/TriangleMeshDistance/TriangleMeshDistance/include"
+    )
+endif()
 target_compile_features(math ${MATH_SCOPE} cxx_std_20)
 target_link_libraries(math ${MATH_SCOPE} utils::utils)
 
@@ -354,6 +364,21 @@ if(BUILD_TESTING)
     )
     target_compile_options(test_indexing PRIVATE ${PROJECT_STRICT_WARNINGS})
     gtest_discover_tests(test_indexing
+        PROPERTIES
+            LABELS math
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_triangle_mesh_field math/test/test_triangle_mesh_field.cpp)
+    target_link_libraries(test_triangle_mesh_field
+        PRIVATE
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_triangle_mesh_field PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_triangle_mesh_field
         PROPERTIES
             LABELS math
         DISCOVERY_TIMEOUT 30
