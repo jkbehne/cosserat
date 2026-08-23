@@ -60,19 +60,6 @@
  *          restoring torque growing linearly with the twist angle, while the
  *          identity gives exactly zero at every angle.
  *
- * @section torsion_shear The shear modulus
- *
- * The reference sets @f$ G = E / (1 + \nu) @f$ with a Poisson ratio of one
- * half, giving @f$ E/1.5 @f$. That is not the library default of @f$ E/3 @f$,
- * and the difference is not cosmetic in this example: the twisting stiffness
- * of an element is @f$ G I_3 @f$, so the default would halve exactly the
- * quantity under test.
- *
- * @ref straight_rod_with_shear_modulus therefore builds the rods through the
- * @c CosseratRod constructor that accepts both moduli, rather than through
- * @c straight_cosserat_rod, which only takes Young's modulus. If a two-moduli
- * overload of @c straight_cosserat_rod ever appears, that helper can go.
- *
  * @section torsion_output What comes out
  *
  * Identical in shape to @c fixed_joint.cpp: every @c diagnostic_steps steps
