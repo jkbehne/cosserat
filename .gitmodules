@@ -16,3 +16,6 @@
 [submodule "external/ordered_map"]
 	path = external/ordered_map
 	url = https://github.com/Tessil/ordered-map.git
+[submodule "external/TriangleMeshDistance"]
+	path = external/TriangleMeshDistance
+	url = https://github.com/InteractiveComputerGraphics/TriangleMeshDistance.git
