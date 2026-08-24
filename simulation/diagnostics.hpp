@@ -78,6 +78,23 @@ concept Writeable = requires(T obj, const std::filesystem::path& out_dir)
 };
 
 /**
+ * @brief A body that also carries a shape worth writing once.
+ *
+ * A rigid body described by a mesh has two kinds of output with two different
+ * lifetimes. Its pose changes every step and is written by @c write, exactly
+ * as for any other body. Its triangles never change in its own frame, so they
+ * are written once by @c write_mesh and reused for every frame after.
+ *
+ * @tparam T Candidate system type.
+ */
+template<typename T>
+concept MeshWriteable = Writeable<T>
+    and requires(T obj, const std::filesystem::path& out_dir)
+{
+    obj.write_mesh(out_dir);
+};
+
+/**
  * @brief Works out and creates the output directory for one body at one step.
  *
  * Holds the root to write beneath and the name of the body it writes for.
@@ -286,8 +303,105 @@ public: // Methods
     const StepSchedule& schedule() const;
 };
 
+/**
+ * @brief Records a mesh body: its shape once, then its pose every step.
+ *
+ * Behaves as @ref BasicDiagnostics for the per-step state, and additionally
+ * writes the body's triangles the first time it writes anything.
+ *
+ * @section mesh_diag_why Why the pose is not just a position
+ *
+ * A rigid body has six degrees of freedom, and a renderer placing a vertex
+ * needs all of them:
+ *
+ * @f[ \mathbf{v}_{world} = \mathbf{c}(t) + \mathbf{Q}(t)^{T}\mathbf{v}_{body} @f]
+ *
+ * Position alone would place a body that only ever translates, and would
+ * silently draw a tumbling one as though it never turned. Both are therefore
+ * written every step, which needs no new code: @c write already emits
+ * @c positions and @c frames for every rigid body.
+ *
+ * Nothing else has to be recorded. The centre of mass does not, because a mesh
+ * body's origin *is* its centre of mass, so the position already is it. The
+ * inertia does not, because nothing downstream of a finished run needs it.
+ *
+ * @section mesh_diag_when When the shape is written
+ *
+ * On the first write rather than at a nominated step. The obvious choice is
+ * step zero, and in an ordinary run that is what happens, since the solver
+ * fires the callbacks once before integrating. But a run resumed part way
+ * through never sees step zero, and a diagnostic on a schedule would then
+ * write poses with no shape to apply them to. Writing on the first call makes
+ * the shape land wherever the run actually starts.
+ *
+ * The shape files sit in that first step's directory, beside the pose. That
+ * keeps the layout uniform, at the cost of the reader having to look in the
+ * earliest step directory rather than a fixed place.
+ */
+class MeshDiagnostics
+{
+private: // Members
+    BasePathManager m_manager;
+    StepSchedule m_schedule;
+    bool m_mesh_written = false;
+
+public: // Methods
+    /**
+     * @brief Builds a diagnostic rooted at a directory, for one named body.
+     * @param base_path Directory to write beneath.
+     * @param body_name Name of the body this diagnostic writes for.
+     * @param steps_to_skip Interval between writes; one writes every step.
+     */
+    MeshDiagnostics(
+        std::filesystem::path base_path,
+        std::string body_name,
+        std::uint64_t steps_to_skip
+    );
+
+    /**
+     * @brief Writes the body's pose, and its shape if not yet written.
+     *
+     * @tparam System Any @ref MeshWriteable system.
+     * @param system Body to write; read but not modified.
+     * @param time Current simulation time.
+     * @param step Current step index.
+     * @return True if the step fell on the schedule and was written, false if
+     *         it was skipped. No directory is created for a skipped step.
+     *
+     * @note Non-const for the same reason as
+     *       @ref BasicDiagnostics::make_callback, and additionally because it
+     *       remembers whether the shape has been written.
+     */
+    template<MeshWriteable System>
+    bool make_callback(System& system, double time, std::uint64_t step)
+    {
+        if (not m_schedule.should_write(step)) return false;
+        const auto path = m_manager.get_next_dir(time, step);
+        system.write(path);
+        if (not m_mesh_written)
+        {
+            system.write_mesh(path);
+            m_mesh_written = true;
+        }
+        return true;
+    }
+
+    /** @brief The path manager this diagnostic writes through. */
+    const BasePathManager& manager() const;
+
+    /** @brief The schedule deciding which steps are written. */
+    const StepSchedule& schedule() const;
+
+    /**
+     * @brief Whether the body's shape has been written yet.
+     * @return True once the first write has happened.
+     */
+    bool mesh_written() const;
+};
+
 /** @brief Any one of the diagnostics, held by value. */
-using DiagnosticVariant = std::variant<BasicDiagnostics, DebugDiagnostics>;
+using DiagnosticVariant =
+    std::variant<BasicDiagnostics, DebugDiagnostics, MeshDiagnostics>;
 
 /**
  * @brief Fails if the held diagnostic cannot write the given system.

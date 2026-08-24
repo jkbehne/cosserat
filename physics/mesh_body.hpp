@@ -34,12 +34,21 @@
  *
  * @section mb_symmetric A caveat for symmetric shapes
  *
- * The principal directions of a shape with repeated moments are not unique: a
- * cube and a sphere are diagonal in every frame. The orientation such a body
+ * Principal directions are eigenvectors, and an eigenvector's sign is
+ * arbitrary, so even a shape with three distinct moments can be handed a frame
+ * differing by a half turn from the one a reader expects. Two identical bodies
+ * built at different positions may end up with different frames and
+ * correspondingly rotated body frame meshes; what is invariant is the pair,
+ * which always reconstructs the same world geometry.
+ *
+ * The freedom is larger still for a shape with repeated moments: a cube and a
+ * sphere are diagonal in every frame. The orientation such a body
  * ends up with is therefore arbitrary among equally valid choices, and may not
  * be the one the mesh was drawn in. It is still correct, but do not rely on a
  * symmetric mesh keeping its modelling orientation.
  */
+
+#include <filesystem>
 
 #include <Eigen/Core>
 #include <Eigen/Dense>
@@ -155,6 +164,28 @@ public: // Methods
      * @return The carried mesh.
      */
     const math::TriangleMesh& body_frame_mesh() const;
+
+    /**
+     * @brief Writes the body frame mesh, which never changes.
+     *
+     * A rigid body's shape is constant in its own frame, so the triangles only
+     * ever need writing once for a whole run. What varies is the body's pose,
+     * and @ref RigidBody::write already records that at every step. Together
+     * the two are enough to place every vertex at every frame:
+     *
+     * @f[ \mathbf{v}_{world} = \mathbf{c}(t) + \mathbf{Q}(t)^{T}\mathbf{v}_{body} @f]
+     *
+     * Two files are produced. @c mesh_vertices holds the vertices as an
+     * @c (n, 3) matrix in body coordinates, and @c mesh_triangles holds the
+     * vertex indices as an @c (m, 3) matrix.
+     *
+     * @param write_path Directory to write into; must already exist.
+     *
+     * @note The indices are stored as doubles, because the binary format only
+     *       carries that one scalar type. Every index below 2^53 is exact, so
+     *       nothing is lost, but a reader has to cast them back.
+     */
+    void write_mesh(const std::filesystem::path& write_path) const;
 
     /** @brief Volume of the solid the mesh bounds. */
     double volume() const;

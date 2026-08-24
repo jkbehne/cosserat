@@ -120,4 +120,19 @@ DebugDiagnostics::DebugDiagnostics(
 const BasePathManager& DebugDiagnostics::manager() const {return m_manager;}
 
 const StepSchedule& DebugDiagnostics::schedule() const {return m_schedule;}
+MeshDiagnostics::MeshDiagnostics(
+    std::filesystem::path base_path,
+    std::string body_name,
+    std::uint64_t steps_to_skip
+) : m_manager(std::move(base_path), std::move(body_name)),
+    m_schedule(steps_to_skip)
+{
+}
+
+const BasePathManager& MeshDiagnostics::manager() const {return m_manager;}
+
+const StepSchedule& MeshDiagnostics::schedule() const {return m_schedule;}
+
+bool MeshDiagnostics::mesh_written() const {return m_mesh_written;}
+
 } // End namespace cosserat::simulation

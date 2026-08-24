@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "utils/assertions.hpp"
+#include "utils/file_utils.hpp"
 
 namespace cosserat::physics {
 using utils::nice_assert;
@@ -120,6 +121,36 @@ const math::TriangleMeshField& MeshBody::field() const {return m_field;}
 const math::TriangleMesh& MeshBody::body_frame_mesh() const
 {
     return m_body_frame_mesh;
+}
+
+void MeshBody::write_mesh(const std::filesystem::path& write_path) const
+{
+    const auto vertex_count =
+        static_cast<Eigen::Index>(m_body_frame_mesh.vertices.size());
+    const auto triangle_count =
+        static_cast<Eigen::Index>(m_body_frame_mesh.triangles.size());
+    nice_assert(vertex_count > 0, "a mesh body must have vertices to write");
+    nice_assert(triangle_count > 0, "a mesh body must have triangles to write");
+
+    Eigen::MatrixXd vertices(vertex_count, 3);
+    for (Eigen::Index row = 0; row < vertex_count; ++row)
+    {
+        vertices.row(row) =
+            m_body_frame_mesh.vertices[static_cast<std::size_t>(row)].transpose();
+    }
+
+    // Indices widened to double, which is the only scalar the format carries.
+    // Exact for every index a mesh could plausibly reach.
+    Eigen::MatrixXd triangles(triangle_count, 3);
+    for (Eigen::Index row = 0; row < triangle_count; ++row)
+    {
+        triangles.row(row) =
+            m_body_frame_mesh.triangles[static_cast<std::size_t>(row)]
+                .cast<double>().transpose();
+    }
+
+    utils::write_matrix(write_path / "mesh_vertices", vertices);
+    utils::write_matrix(write_path / "mesh_triangles", triangles);
 }
 
 double MeshBody::volume() const {return m_volume;}
