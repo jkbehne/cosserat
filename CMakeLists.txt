@@ -575,6 +575,38 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_mass_properties physics/test/test_mass_properties.cpp)
+    target_link_libraries(test_mass_properties
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_mass_properties PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_mass_properties
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
+    add_executable(test_mesh_body physics/test/test_mesh_body.cpp)
+    target_link_libraries(test_mesh_body
+        PRIVATE
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_mesh_body PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_mesh_body
+        PROPERTIES
+            LABELS physics
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_rod_mesh_contact physics/test/test_rod_mesh_contact.cpp)
     target_link_libraries(test_rod_mesh_contact
         PRIVATE
