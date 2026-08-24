@@ -553,10 +553,18 @@ def test_the_title_can_be_turned_off(tmp_path):
 @needs_ffmpeg
 def test_per_mesh_styling_cycles_across_the_meshes(tmp_path):
     counts = []
+    palettes = []
 
     def record(axes, index, time):
         del index, time
         counts.append(len(axes.collections))
+        # Every body's faces share one collection, so the styling shows up as
+        # the set of face colours within it rather than as separate artists.
+        colours = set()
+        for collection in axes.collections:
+            for colour in collection.get_facecolors():
+                colours.add(tuple(np.round(colour, 4)))
+        palettes.append(colours)
 
     frames = [
         (0.05 * index, [cylinder_grids(0.0), cylinder_grids(1.0)])
@@ -570,8 +578,11 @@ def test_per_mesh_styling_cycles_across_the_meshes(tmp_path):
         frame_hook=record,
     )
 
-    # Both surfaces are drawn every frame, and the old ones are cleared away.
-    assert counts == [2, 2, 2]
+    # The whole scene is drawn in one collection, so that matplotlib depth
+    # sorts it as one thing, and the old one is cleared away each frame.
+    assert counts == [1, 1, 1]
+    # Both styles still reach the output: two bodies, two distinct colours.
+    assert all(len(palette) == 2 for palette in palettes), palettes
 
 
 @needs_ffmpeg

@@ -39,6 +39,9 @@ from typing import Any, Final
 import numpy as np
 from numpy.typing import NDArray
 
+from cosserat_python_tools.meshes.rigid_triangle_mesh import (
+    RigidTriangleMesh
+)
 from cosserat_python_tools.rods.discrete_cosserat_rod import (
     DiscreteCosseratRod
 )
@@ -72,6 +75,12 @@ STEP_DIRECTORY_PREFIX: Final[str] = "step"
 
 ## @brief Stems a body must have written for it to be read back as a rod.
 ROD_STEM_NAMES: Final[tuple[str, ...]] = ("positions", "frames", "radii")
+
+## @brief Stems every rigid body writes, whatever its shape.
+POSE_STEM_NAMES: Final[tuple[str, ...]] = ("positions", "frames")
+
+## @brief Stems a mesh body writes once, on the first step it records.
+MESH_SHAPE_STEM_NAMES: Final[tuple[str, ...]] = ("mesh_vertices", "mesh_triangles")
 
 
 def read_metadata(metadata_path: Path | str) -> dict[str, Any]:
@@ -364,6 +373,189 @@ def get_cosserat_rods_from_dir(
     return [
         get_cosserat_rods_from_step_dir(
             step_dir=step_dir, raise_if_no_rods=raise_if_no_rods
+        )
+        for step_dir in step_dirs
+    ]
+
+
+def is_rod_like(body_dir: Path) -> bool:
+    """@brief Whether a body directory holds a rod.
+
+    A rod writes its radii alongside its pose, which nothing else does.
+
+    @param body_dir Directory for one body within one step.
+    @return True when every stem a rod writes is present.
+    """
+    available = find_stems(body_dir)
+    return all(body_dir / name in available for name in ROD_STEM_NAMES)
+
+
+def is_mesh_like(body_dir: Path) -> bool:
+    """@brief Whether a body directory holds a mesh body.
+
+    A mesh body writes a pose like any rigid body and no radii, since it has no
+    single radius to write. Its triangles appear only in the first step it
+    records, so their absence here says nothing: what identifies it on a later
+    step is the pose without the radii.
+
+    @param body_dir Directory for one body within one step.
+    @return True when the directory holds a pose but no radii.
+    """
+    available = find_stems(body_dir)
+    has_pose = all(body_dir / name in available for name in POSE_STEM_NAMES)
+    has_radii = body_dir / "radii" in available
+    return has_pose and not has_radii
+
+
+def has_mesh_shape(body_dir: Path) -> bool:
+    """@brief Whether a body directory carries the written triangles.
+
+    @param body_dir Directory for one body within one step.
+    @return True when both shape stems are present.
+    """
+    available = find_stems(body_dir)
+    return all(body_dir / name in available for name in MESH_SHAPE_STEM_NAMES)
+
+
+def load_mesh_shape(
+    body_dir: Path,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """@brief Reads the body frame triangles a mesh body wrote.
+
+    @param body_dir Directory for one body within one step.
+    @return The vertices and the vertex indices, both as written.
+    @throws FileNotFoundError If either file is missing.
+    """
+    return (
+        load_matrix_from_stem(body_dir / "mesh_vertices"),
+        load_matrix_from_stem(body_dir / "mesh_triangles"),
+    )
+
+
+def load_pose(body_dir: Path) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """@brief Reads the position and orientation of a rigid body.
+
+    A rigid body has one node and one element, so the arrays come back squeezed
+    to a single position and a single frame.
+
+    @param body_dir Directory for one body within one step.
+    @return The position, shape @c (3,), and the frame, shape @c (3, 3).
+    """
+    return (
+        load_matrix_from_stem(body_dir / "positions").reshape(3),
+        load_matrix_from_stem(body_dir / "frames").reshape(3, 3),
+    )
+
+
+def get_bodies_from_step_dir(
+    step_dir: Path | str,
+    mesh_shapes: dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]],
+    raise_if_empty: bool = True,
+) -> tuple[float, list[object]]:
+    """@brief Reads every drawable body from one step directory.
+
+    Rods are read whole, since everything they need is written every step. A
+    mesh body is read as its pose applied to a shape from @p mesh_shapes, which
+    the caller accumulates as it walks the steps in order; a mesh body seen
+    before its shape has been recorded is skipped rather than guessed at.
+
+    @param step_dir Directory named @c step_<number>_st_<time>.
+    @param mesh_shapes Shapes already found, keyed by body name. A shape found
+           in this directory is added to it.
+    @param raise_if_empty When true, a step with nothing drawable is an error.
+    @return The simulation time parsed from the directory name, paired with the
+            bodies found, ordered by body name.
+    @throws NotADirectoryError If @p step_dir is not a directory.
+    @throws ValueError If the directory holds no body subdirectories, or if
+            @p raise_if_empty is set and nothing drawable was found.
+    """
+    step_path = Path(step_dir).expanduser()
+    if not step_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {step_path}")
+
+    body_dirs = sorted(
+        body_dir for body_dir in step_path.iterdir() if body_dir.is_dir()
+    )
+    if len(body_dirs) < 1:
+        raise ValueError(
+            f"Expected at least one body directory in directory {step_path}"
+        )
+
+    bodies: list[object] = []
+    for body_dir in body_dirs:
+        if is_rod_like(body_dir):
+            bodies.append(
+                DiscreteCosseratRod(
+                    positions=load_matrix_from_stem(body_dir / "positions"),
+                    frames=load_matrix_from_stem(body_dir / "frames"),
+                    radii=load_matrix_from_stem(body_dir / "radii"),
+                )
+            )
+            continue
+
+        if not is_mesh_like(body_dir):
+            continue
+
+        # The triangles are written once, on the first step recorded, so a
+        # shape found here is kept for every step after.
+        if has_mesh_shape(body_dir):
+            mesh_shapes[body_dir.name] = load_mesh_shape(body_dir)
+
+        shape = mesh_shapes.get(body_dir.name)
+        if shape is None:
+            continue
+
+        vertices, triangles = shape
+        position, frame = load_pose(body_dir)
+        bodies.append(RigidTriangleMesh(vertices, triangles, position, frame))
+
+    if len(bodies) == 0 and raise_if_empty:
+        raise ValueError(f"Couldn't find any drawable body in {step_path}")
+
+    return parse_step_time(step_path), bodies
+
+
+def get_bodies_from_dir(
+    directory: Path | str,
+    raise_if_empty: bool = True,
+) -> list[tuple[float, list[object]]]:
+    """@brief Reads every step of a run, rods and mesh bodies alike.
+
+    Walks the step directories in step order, which is also name order because
+    the writer zero pads the step number. Order matters twice over here: it is
+    the frame order of any animation, and it is what puts a mesh body's
+    triangles, written only on the first step recorded, in hand before the
+    later poses that need them.
+
+    The result is the frame sequence the animation utilities consume.
+
+    @param directory Root the diagnostics wrote beneath.
+    @param raise_if_empty When true, a step with nothing drawable is an error.
+    @return One @c (time, bodies) pair per step, in step order.
+    @throws NotADirectoryError If @p directory is not a directory.
+    @throws ValueError If no step directories are present, or if any step
+            cannot be read.
+    """
+    dir_path = Path(directory).expanduser()
+    if not dir_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {dir_path}")
+
+    step_dirs = sorted(
+        step_dir
+        for step_dir in dir_path.glob(f"{STEP_DIRECTORY_PREFIX}_*")
+        if step_dir.is_dir()
+    )
+    if not step_dirs:
+        raise ValueError(
+            f"No {STEP_DIRECTORY_PREFIX}_* directories found in {dir_path}"
+        )
+
+    mesh_shapes: dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]] = {}
+    return [
+        get_bodies_from_step_dir(
+            step_dir=step_dir,
+            mesh_shapes=mesh_shapes,
+            raise_if_empty=raise_if_empty,
         )
         for step_dir in step_dirs
     ]

@@ -140,7 +140,10 @@ constexpr double DEFAULT_DENSITY = 1750.0;
 constexpr double DEFAULT_YOUNGS_MODULUS = 3e7;
 
 /** @brief Half extents of the ground slab, whose top face lands at z = 0. */
-constexpr double DEFAULT_GROUND_HALF_WIDTH = 0.5;
+// Kept close to the rod's own length. A ground far larger than the bodies
+// on it renders badly: it dominates an equal-aspect view, and matplotlib's
+// depth sorting will happily draw one enormous polygon over everything.
+constexpr double DEFAULT_GROUND_HALF_WIDTH = 0.22;
 constexpr double DEFAULT_GROUND_HALF_THICKNESS = 0.05;
 
 /** @brief The block the rod comes to rest against. */
@@ -234,6 +237,12 @@ ParseReturnType parse_arguments(int argc, char* argv[])
         "youngs_modulus",
         "Young's modulus for the rod",
         cxxopts::value<double>()->default_value(std::to_string(DEFAULT_YOUNGS_MODULUS))
+    )
+    (
+        "ground_half_width",
+        "Half the ground slab's extent; keep it near the rod's own length",
+        cxxopts::value<double>()->default_value(
+            std::to_string(DEFAULT_GROUND_HALF_WIDTH))
     )
     (
         "block_center_x",
@@ -376,10 +385,11 @@ int run_simulation(
     // The ground slab, positioned so its top face is exactly z = 0. That makes
     // every height below readable: a rod resting on it sits at its own radius.
     const double ground_half_thickness = DEFAULT_GROUND_HALF_THICKNESS;
+    const auto ground_half_width = parsed["ground_half_width"].as<double>();
     auto ground = std::make_shared<BodyVariant>(MeshBody(
         math::make_box_mesh(
             Eigen::Vector3d(0.0, 0.0, -ground_half_thickness),
-            Eigen::Vector3d(DEFAULT_GROUND_HALF_WIDTH, DEFAULT_GROUND_HALF_WIDTH,
+            Eigen::Vector3d(ground_half_width, ground_half_width,
                             ground_half_thickness)
         ),
         density, field_margin, true

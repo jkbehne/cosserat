@@ -47,9 +47,10 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Tuple, Union, Final
 
 import numpy as np
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from matplotlib import animation
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
@@ -123,6 +124,72 @@ class AnimationResult:
     duration_seconds: float
     ## @brief Bounds the axes were held at.
     bounds: Bounds
+
+
+## @brief A triangle mesh as world vertices and the indices into them.
+Triangles = Tuple[np.ndarray, np.ndarray]
+
+## @brief How a drawable was resolved: coordinate grids, or triangles.
+## @brief Most passes @ref subdivide_faces will make before giving up.
+MAX_SUBDIVISION_PASSES: Final[int] = 8
+
+## @brief Face size limit, as a fraction of the scene's longest side.
+DEFAULT_FACE_FRACTION: Final[float] = 1.0 / 12.0
+
+SURFACE_KIND: Final[str] = "surface"
+TRIANGLE_KIND: Final[str] = "triangles"
+
+
+def as_drawable(mesh: MeshLike, **to_mesh_kwargs) -> Tuple[str, Any]:
+    """@brief Resolves anything drawable into one of the two shapes we render.
+
+    Two kinds of geometry turn up in one animation and they cannot be drawn the
+    same way. A rod is swept into a rectangular grid of quadrilaterals, which
+    is what @c plot_surface consumes. A rigid body's mesh is an arbitrary
+    triangle soup with no grid structure at all, and has to go through a
+    polygon collection instead. Rather than force one into the other, each is
+    resolved to its own kind here and dispatched on at the point of drawing.
+
+    An object offering @c to_triangles is treated as a triangle mesh; one
+    offering @c to_mesh as a surface; anything else as a triple of grids.
+
+    @param mesh The object to resolve.
+    @param to_mesh_kwargs Forwarded to @c to_mesh when that is the path taken.
+    @return The kind, paired with either three grids or vertices and indices.
+    @throws TypeError If the object is none of those things.
+    """
+    if hasattr(mesh, "to_triangles"):
+        vertices, triangles = mesh.to_triangles()
+        vertices = np.asarray(vertices, dtype=float)
+        triangles = np.asarray(triangles)
+        if vertices.ndim != 2 or vertices.shape[1] != 3:
+            raise ValueError(
+                f"triangle vertices must have shape (n, 3), got {vertices.shape}"
+            )
+        if triangles.ndim != 2 or triangles.shape[1] != 3:
+            raise ValueError(
+                f"triangle indices must have shape (m, 3), got {triangles.shape}"
+            )
+        return TRIANGLE_KIND, (vertices, triangles.astype(np.int64))
+
+    return SURFACE_KIND, as_grids(mesh, **to_mesh_kwargs)
+
+
+def drawable_points(mesh: MeshLike, **to_mesh_kwargs) -> np.ndarray:
+    """@brief Every point of a drawable, as an @c (n, 3) array.
+
+    Used to bound a scene without caring which kind of geometry each body is.
+
+    @param mesh The object to resolve.
+    @param to_mesh_kwargs Forwarded to @c to_mesh when relevant.
+    @return The points the drawable occupies.
+    """
+    kind, payload = as_drawable(mesh, **to_mesh_kwargs)
+    if kind == TRIANGLE_KIND:
+        vertices, _ = payload
+        return vertices
+    x_grid, y_grid, z_grid = payload
+    return np.stack([x_grid.ravel(), y_grid.ravel(), z_grid.ravel()], axis=1)
 
 
 def as_grids(mesh: MeshLike, **to_mesh_kwargs) -> Grids:
@@ -347,10 +414,7 @@ def compute_global_bounds(
     for index in range(len(source)):
         _, meshes = source[index]
         for mesh in meshes:
-            x_grid, y_grid, z_grid = as_grids(mesh, **to_mesh_kwargs)
-            stacked = np.stack(
-                [x_grid.ravel(), y_grid.ravel(), z_grid.ravel()], axis=1
-            )
+            stacked = drawable_points(mesh, **to_mesh_kwargs)
             lowest = np.minimum(lowest, stacked.min(axis=0))
             highest = np.maximum(highest, stacked.max(axis=0))
             seen_any = True
@@ -426,6 +490,123 @@ def _resolve_surface_kwargs(
     return dict(options[mesh_index % len(options)])
 
 
+def faces_of(mesh: MeshLike, **to_mesh_kwargs) -> np.ndarray:
+    """@brief Every triangle of a drawable, as an @c (m, 3, 3) array.
+
+    Both kinds of geometry end up as triangles, because they have to be drawn
+    together and a scene can only be depth sorted correctly if it is sorted as
+    one thing. A surface grid is cut into two triangles per quad; a triangle
+    mesh is already there.
+
+    @param mesh The object to resolve.
+    @param to_mesh_kwargs Forwarded to @c to_mesh when relevant.
+    @return The triangles, each three points of three coordinates.
+    """
+    kind, payload = as_drawable(mesh, **to_mesh_kwargs)
+    if kind == TRIANGLE_KIND:
+        vertices, triangles = payload
+        return vertices[triangles]
+
+    x_grid, y_grid, z_grid = payload
+    points = np.stack([x_grid.ravel(), y_grid.ravel(), z_grid.ravel()], axis=1)
+    rows, columns = x_grid.shape
+    indices = np.arange(rows * columns).reshape(rows, columns)
+    upper_left = indices[:-1, :-1].ravel()
+    lower_left = indices[1:, :-1].ravel()
+    lower_right = indices[1:, 1:].ravel()
+    upper_right = indices[:-1, 1:].ravel()
+    triangles = np.concatenate([
+        np.stack([upper_left, lower_left, lower_right], axis=1),
+        np.stack([upper_left, lower_right, upper_right], axis=1),
+    ])
+    return points[triangles]
+
+
+def subdivide_faces(faces: np.ndarray, max_edge: float) -> np.ndarray:
+    """@brief Splits triangles until none has an edge longer than a limit.
+
+    Matplotlib has no depth buffer. It draws three dimensional geometry with
+    the painter's algorithm, sorting whole polygons by their average depth and
+    painting them in that order, which is only correct when the polygons are
+    small compared with how far apart they are. One large flat polygon, a
+    ground slab being the obvious case, has an average depth that says nothing
+    useful about the parts of it: the whole slab is painted at once, either
+    entirely in front of a body standing on it or entirely behind. In front is
+    what tends to happen looking down at a scene, and it makes anything resting
+    on the ground disappear into it.
+
+    Cutting the large faces down fixes it, because each piece then carries a
+    depth that describes only itself.
+
+    @param faces Triangles, shape @c (m, 3, 3).
+    @param max_edge Longest edge to leave alone. Non positive disables this.
+    @return The triangles, split as needed.
+    """
+    faces = np.asarray(faces, dtype=float)
+    if max_edge <= 0.0 or faces.size == 0:
+        return faces
+
+    # Bounded rather than recursive to termination, so a pathological limit
+    # costs a bounded amount of work instead of exhausting memory.
+    for _ in range(MAX_SUBDIVISION_PASSES):
+        lengths = np.stack([
+            np.linalg.norm(faces[:, 1] - faces[:, 0], axis=1),
+            np.linalg.norm(faces[:, 2] - faces[:, 1], axis=1),
+            np.linalg.norm(faces[:, 0] - faces[:, 2], axis=1),
+        ], axis=1).max(axis=1)
+        oversized = lengths > max_edge
+        if not oversized.any():
+            break
+
+        keep = faces[~oversized]
+        split = faces[oversized]
+        first, second, third = split[:, 0], split[:, 1], split[:, 2]
+        # Split at the edge midpoints, into four similar triangles.
+        first_second = 0.5 * (first + second)
+        second_third = 0.5 * (second + third)
+        third_first = 0.5 * (third + first)
+        faces = np.concatenate([
+            keep,
+            np.stack([first, first_second, third_first], axis=1),
+            np.stack([first_second, second, second_third], axis=1),
+            np.stack([third_first, second_third, third], axis=1),
+            np.stack([first_second, second_third, third_first], axis=1),
+        ])
+    return faces
+
+
+def _draw_triangles(axes, payload: Triangles, options: Dict[str, Any]) -> None:
+    """@brief Draws a triangle mesh as a collection of shaded polygons.
+
+    @c plot_trisurf exists, but it shades by height and is meant for surfaces
+    that are a function of x and y. A closed body is not, so its far side would
+    be shaded as though it were the near one. A polygon collection draws the
+    faces as given and gets a solid closed body right.
+
+    @param axes The three dimensional axes to draw on.
+    @param payload The world vertices and the vertex indices.
+    @param options Style options, filtered to those a polygon collection takes.
+    """
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    vertices, triangles = payload
+    faces = vertices[triangles]
+
+    # plot_surface and a polygon collection do not accept the same options, so
+    # only the ones that carry over are passed on.
+    collection_options: Dict[str, Any] = {}
+    for name in ("color", "facecolor", "facecolors", "edgecolor", "alpha",
+                 "linewidth", "zorder"):
+        if name in options:
+            collection_options[name] = options[name]
+    collection_options.setdefault("edgecolor", "none")
+    # A closed body needs to occlude itself rather than blend with the bodies
+    # behind it, so it is drawn opaque unless asked otherwise.
+    collection_options.setdefault("alpha", 1.0)
+
+    axes.add_collection3d(Poly3DCollection(faces, **collection_options))
+
+
 def default_title(time: float, index: int) -> str:
     """
     @brief The title drawn on each frame when none is supplied.
@@ -449,6 +630,8 @@ def animate_meshes(
     dpi: int = 100,
     surface_kwargs: Optional[Union[Dict[str, Any], Sequence[Dict[str, Any]]]] = None,
     to_mesh_kwargs: Optional[Dict[str, Any]] = None,
+    bounds: Optional[Bounds] = None,
+    max_face_size: Optional[float] = None,
     elevation: float = 20.0,
     azimuth: float = -60.0,
     axis_labels: Tuple[str, str, str] = ("x", "y", "z"),
@@ -475,6 +658,16 @@ def animate_meshes(
     @param surface_kwargs Options forwarded to @c plot_surface, either one dict
            for every mesh or a sequence cycled across the meshes in a frame.
     @param to_mesh_kwargs Options forwarded to each mesh's @c to_mesh.
+    @param max_face_size Longest triangle edge left unsplit, in scene units.
+           Large flat faces are cut down because matplotlib sorts whole
+           polygons by average depth, which makes a big one paint over
+           anything standing on it. Defaults to a twelfth of the scene's
+           longest side; pass zero to disable, which is faster and fine for a
+           scene with no large flat bodies.
+    @param bounds View box to hold, overriding the one derived from the
+           geometry. Useful for cropping to part of a scene, such as the band
+           just above a wide ground, without the view chasing the motion. The
+           three axes still share one scale, so proportions stay honest.
     @param elevation Camera elevation in degrees.
     @param azimuth Camera azimuth in degrees.
     @param axis_labels Labels for the three axes.
@@ -503,8 +696,17 @@ def animate_meshes(
     if not np.isfinite(fps) or fps <= 0.0:
         raise ValueError(f"fps must be finite and positive, got {fps}")
 
-    bounds = compute_global_bounds(
-        frames, num_frames, padding=padding, to_mesh_kwargs=to_mesh_kwargs
+    if bounds is None:
+        bounds = compute_global_bounds(
+            frames, num_frames, padding=padding, to_mesh_kwargs=to_mesh_kwargs
+        )
+
+    # Sized from the scene rather than fixed, so the same limit is sensible
+    # whether the geometry spans millimetres or metres.
+    max_edge = (
+        2.0 * bounds.half_extent * DEFAULT_FACE_FRACTION
+        if max_face_size is None
+        else float(max_face_size)
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -525,12 +727,32 @@ def animate_meshes(
             # plot_surface has no in place update, so the axes are rebuilt each
             # frame. This is also why blitting is not available here.
             axes.clear()
+
+            # Every body's triangles go into one collection, because
+            # matplotlib depth sorts the contents of a collection together but
+            # paints separate artists in the order they were added. Drawn one
+            # body at a time, a ground slab added after a rod is painted over
+            # it and the rod sinks into the floor. See @ref subdivide_faces.
+            scene_faces = []
+            face_colours = []
             for mesh_index, mesh in enumerate(meshes):
-                x_grid, y_grid, z_grid = as_grids(mesh, **to_mesh_kwargs)
                 options = _resolve_surface_kwargs(surface_kwargs, mesh_index)
-                options.setdefault("linewidth", 0)
-                options.setdefault("antialiased", True)
-                axes.plot_surface(x_grid, y_grid, z_grid, **options)
+                body_faces = subdivide_faces(
+                    faces_of(mesh, **to_mesh_kwargs), max_edge
+                )
+                scene_faces.append(body_faces)
+                face_colours.extend(
+                    [options.get("color", f"C{mesh_index}")] * len(body_faces)
+                )
+
+            if scene_faces:
+                collection = Poly3DCollection(
+                    np.concatenate(scene_faces),
+                    facecolors=face_colours,
+                    edgecolor="none",
+                )
+                collection.set_zsort("average")
+                axes.add_collection3d(collection)
 
             # Held at the global bounds, so the camera does not chase the
             # motion. One extent for all three axes keeps proportions honest.
