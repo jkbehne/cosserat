@@ -735,4 +735,20 @@ if(BUILD_EXAMPLES)
     if (ENABLE_PROFILING)
         target_compile_options(fixed_joint_torsion PRIVATE ${PROJECT_PROFILING})
     endif()
+
+    add_executable(basic_square_meshes examples/meshes/basic_square_meshes.cpp)
+    target_link_libraries(basic_square_meshes
+        PRIVATE
+            simulation::simulation
+            utils::utils
+            physics::physics
+            math::math
+    )
+    target_compile_options(basic_square_meshes PRIVATE ${PROJECT_STRICT_WARNINGS})
+    if (ENABLE_OPTIMIZATION)
+        target_compile_options(basic_square_meshes PRIVATE ${PROJECT_OPTIMIZATION})
+    endif()
+    if (ENABLE_PROFILING)
+        target_compile_options(basic_square_meshes PRIVATE ${PROJECT_PROFILING})
+    endif()
 endif()

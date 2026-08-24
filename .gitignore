@@ -4,4 +4,5 @@ build_cpp/
 __pycache__/
 *.egg
 *.egg-info/
+*.mp4
 .DS_Store
