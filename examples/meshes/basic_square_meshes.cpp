@@ -69,6 +69,21 @@
  * resting on a surface sits one rod radius above it, so the settled height on
  * the ground is @c 0.007 less a few microns of penetration.
  *
+ * @section bsm_output What lands on disk
+ *
+ * Every @c diagnostic_steps steps each body writes its pose beneath
+ * @c diagnostic_base_path, one directory per step and one subdirectory per
+ * body. The two meshes additionally write their triangles, once, into the
+ * first step directory recorded: @c mesh_vertices holds the vertices in body
+ * coordinates and @c mesh_triangles the indices.
+ *
+ * That split is what a renderer needs. A rigid body's shape is constant in its
+ * own frame, so it is written once; its pose is not, so position and
+ * orientation are written every frame and combine as
+ * @f$ \mathbf{v}_{world} = \mathbf{c}(t) + \mathbf{Q}(t)^{T}\mathbf{v}_{body} @f$.
+ * The obstacles here never move, so their poses repeat, but nothing about the
+ * output assumes that.
+ *
  * @section bsm_running Running it
  *
  * @verbatim
@@ -429,14 +444,24 @@ int run_simulation(
         std::filesystem::path(parsed["diagnostic_base_path"].as<std::string>());
     const auto skip_steps = parsed["diagnostic_steps"].as<int>();
     utils::nice_assert(skip_steps > 0, "diagnostic_steps must be at least one");
-    for (const std::string& name : {ground_name, block_name, rod_name})
+    // The two obstacles get the mesh diagnostic, which records their triangles
+    // once and their pose thereafter, so a renderer can draw them rather than
+    // merely know where they are. The rod is not a mesh body and takes the
+    // plain diagnostic, whose positions and radii are what its own tube is
+    // built from.
+    for (const std::string& name : {ground_name, block_name})
     {
         sim.collect_diagnostics(
             name,
-            simulation::BasicDiagnostics(
+            simulation::MeshDiagnostics(
                 base_path, name, static_cast<std::uint64_t>(skip_steps))
         );
     }
+    sim.collect_diagnostics(
+        rod_name,
+        simulation::BasicDiagnostics(
+            base_path, rod_name, static_cast<std::uint64_t>(skip_steps))
+    );
 
     sim.finalize();
 
