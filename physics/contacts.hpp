@@ -52,6 +52,7 @@
 #include "math/types.hpp"
 
 #include "physics/plane.hpp"
+#include "physics/rod_mesh_contact.hpp"
 
 #include "utils/assertions.hpp"
 
@@ -116,11 +117,35 @@ concept FrictionalRod = ContactableRod<T> and requires(T sys)
 };
 
 /**
- * @brief A rigid cylinder that can take part in contact.
+ * @brief A body that carries its own geometry as a distance field.
+ *
+ * Used only to keep such a body out of the primitive contact roles below. A
+ * mesh body exposes everything a sphere or a cylinder does, because it derives
+ * from the same rigid body, so without this it would satisfy
+ * @ref ContactableSphere and @ref ContactableCylinder and could be handed to
+ * @ref RodSphereContact or @ref RodCylinderContact. Those would then treat an
+ * arbitrary mesh as a sphere of its nominal bounding radius, which is silently
+ * wrong rather than an error.
+ *
  * @tparam T System type.
  */
 template<typename T>
-concept ContactableCylinder = requires(T sys)
+concept CarriesDistanceField = requires(const T sys)
+{
+    {sys.field_query()} -> std::same_as<math::FieldQuery>;
+};
+
+/**
+ * @brief A rigid cylinder that can take part in contact.
+ *
+ * Excludes bodies described by a field, which are not cylinders however much
+ * of the cylinder interface they happen to expose. See
+ * @ref CarriesDistanceField.
+ *
+ * @tparam T System type.
+ */
+template<typename T>
+concept ContactableCylinder = (not CarriesDistanceField<T>) and requires(T sys)
 {
     {sys.positions()} -> std::same_as<const Vector3DStack&>;
     {sys.velocities()} -> std::same_as<const Vector3DStack&>;
@@ -135,12 +160,13 @@ concept ContactableCylinder = requires(T sys)
  * @brief A rigid sphere that can take part in contact.
  *
  * Structurally identical to @ref ContactableCylinder minus the torque
- * accumulator, since sphere contact applies none.
+ * accumulator, since sphere contact applies none. Likewise excludes bodies
+ * described by a field; see @ref CarriesDistanceField.
  *
  * @tparam T System type.
  */
 template<typename T>
-concept ContactableSphere = requires(T sys)
+concept ContactableSphere = (not CarriesDistanceField<T>) and requires(T sys)
 {
     {sys.positions()} -> std::same_as<const Vector3DStack&>;
     {sys.velocities()} -> std::same_as<const Vector3DStack&>;
@@ -1003,6 +1029,7 @@ using ContactVariant = std::variant<
     RodSelfContact,
     RodCylinderContact,
     RodSphereContact,
+    RodMeshContact,
     RodPlaneContact,
     RodPlaneContactWithAnisotropicFriction,
     CylinderPlaneContact>;

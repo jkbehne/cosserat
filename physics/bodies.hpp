@@ -26,6 +26,7 @@
 #include <memory>
 #include <variant>
 
+#include "physics/mesh_body.hpp"
 #include "physics/rigid_body.hpp"
 #include "physics/rods.hpp"
 
@@ -42,7 +43,7 @@ namespace cosserat::physics {
  *       @c std::variant<CosseratRod, RigidBody> would lose nothing but the
  *       shape tag.
  */
-using BodyVariant = std::variant<CosseratRod, RigidBody, Sphere, Cylinder>;
+using BodyVariant = std::variant<CosseratRod, RigidBody, Sphere, Cylinder, MeshBody>;
 
 /** @brief Shared ownership of a body. */
 using BodyVariantPtr = std::shared_ptr<BodyVariant>;
