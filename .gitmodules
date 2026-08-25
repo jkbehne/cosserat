@@ -7,3 +7,15 @@
 [submodule "external/cxxopts"]
 	path = external/cxxopts
 	url = https://github.com/jarro2783/cxxopts.git
+[submodule "external/PyElastica"]
+	path = external/PyElastica
+	url = https://github.com/GazzolaLab/PyElastica.git
+[submodule "external/json"]
+	path = external/json
+	url = https://github.com/nlohmann/json.git
+[submodule "external/ordered_map"]
+	path = external/ordered_map
+	url = https://github.com/Tessil/ordered-map.git
+[submodule "external/TriangleMeshDistance"]
+	path = external/TriangleMeshDistance
+	url = https://github.com/InteractiveComputerGraphics/TriangleMeshDistance.git
