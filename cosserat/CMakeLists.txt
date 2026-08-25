@@ -315,7 +315,7 @@ target_include_directories(simulation ${SIM_SCOPE}
 # project's warning set. Without it every build fails inside Eigen.
 target_include_directories(simulation SYSTEM ${SIM_SCOPE}
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/eigen>"
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/ordered_map/include>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/ordered-map/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include>"
 )
