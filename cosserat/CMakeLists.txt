@@ -32,15 +32,39 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # Let the test binary find libutils.so out of the build tree without
 # LD_LIBRARY_PATH juggling.
-set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+# Only ELF and AIX understand $ORIGIN; CMake ignores this elsewhere, but
+# saying so explicitly keeps the two rpath decisions side by side.
+if(NOT APPLE AND NOT WIN32)
+    set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+endif()
 
 # The installed libraries depend on one another, and the installed examples on
 # all of them. Without a run path they are found at link time and then not at
 # load time, which shows up as a binary that builds and refuses to start.
-# $ORIGIN covers a library finding its siblings in lib, and $ORIGIN/../lib
-# covers an executable in bin finding them.
-set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
+#
+# The run path has to be relative, so that moving or renaming the install
+# prefix does not break it, and the spelling of "relative to me" differs by
+# platform. ELF uses $ORIGIN. Mach-O has no such variable at all and uses
+# @loader_path, resolved against whichever binary is doing the loading; giving
+# dyld a literal $ORIGIN produces exactly the run time failure this is meant to
+# prevent, since it goes looking for a directory of that name.
+#
+# Either way there are two entries: the first is a library in lib finding its
+# siblings, the second an executable in bin finding that lib.
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../lib")
+elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
+endif()
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+
+# Mach-O records an install name in every shared library, and a consumer links
+# against whatever that says. @rpath defers the decision to the run path above
+# rather than baking in the build directory. CMake defaults this on, but the
+# whole scheme depends on it, so it is stated rather than assumed.
+if(APPLE)
+    set(CMAKE_MACOSX_RPATH ON)
+endif()
 
 # ---------------------------------------------------------------------------
 # Strict warning set, applied only to our own targets so that third party
@@ -104,6 +128,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         -Wno-error=maybe-uninitialized
     )
 endif()
+
+message(STATUS "install rpath: ${CMAKE_INSTALL_RPATH}")
 
 option(ENABLE_OPTIMIZATION "Enables code optimization" ON)
 option(ENABLE_PROFILING "Enables LLVM code profiling" OFF)

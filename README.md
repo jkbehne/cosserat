@@ -82,6 +82,13 @@ which keeps the assertions live.
 **Requirements.** A C++20 compiler (GCC 13 or Clang 16 onward), CMake 3.20 or
 newer, and nothing else. Doxygen is used if present and skipped if not.
 
+**Platforms.** Built and tested on Linux with GCC and on macOS with Clang. The
+two disagree about enough to be worth naming: GCC raises two warnings from
+inside Eigen that no amount of `SYSTEM` marking suppresses, because they come
+from the optimiser rather than the front end, and they are demoted for GCC
+only; and the relative run path that lets an installed tree be moved is spelled
+`$ORIGIN` on ELF and `@loader_path` on Mach-O.
+
 ---
 
 ## A first program
@@ -529,6 +536,13 @@ produces
 
 Everything sits under a `cosserat` directory inside the prefix, so an install
 never scatters files through a shared `/usr/local/include`.
+
+The installed binaries find their libraries through a **relative** run path, so
+the whole `cosserat` directory can be moved or renamed without breaking. The
+spelling of that path is platform specific — `$ORIGIN` on ELF, `@loader_path`
+on Mach-O — and `install.sh` runs each installed program once after installing
+to confirm it loads, because linking and loading are separate steps and a run
+path wrong for the platform passes the first and fails the second.
 
 The vendored dependencies our headers expose — Eigen, nlohmann/json, tsl
 ordered-map, spdlog, cxxopts — are installed alongside. Without them the promise

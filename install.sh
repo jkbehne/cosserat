@@ -212,6 +212,46 @@ step "Installing to ${PREFIX}/cosserat"
 cmake --install "${BUILD_DIR}"
 
 # ---------------------------------------------------------------------------
+# Check that what was installed actually loads.
+#
+# Linking and loading are different steps, and a run path that is wrong for the
+# platform passes the first and fails the second: the binaries build, install
+# without complaint, and abort the moment anyone runs one. Running an installed
+# program here turns that into an installer failure rather than something the
+# user discovers later.
+# ---------------------------------------------------------------------------
+if [[ "${BUILD_EXAMPLES}" == "ON" ]]; then
+    step "Checking the installed programs load"
+    SMOKE_TESTED="no"
+    for PROGRAM in "${PREFIX}/cosserat/bin"/*; do
+        [[ -x "${PROGRAM}" && -f "${PROGRAM}" ]] || continue
+        # --help exits immediately and touches no files, but reaching it means
+        # every shared library resolved.
+        if ! "${PROGRAM}" --help >/dev/null 2>&1; then
+            printf '\n' >&2
+            printf 'The installed program below could not run:\n\n' >&2
+            printf '    %s\n\n' "${PROGRAM}" >&2
+            "${PROGRAM}" --help >/dev/null || true
+            printf '\nThe files are installed, but a shared library could not be\n' >&2
+            printf 'found at load time. The usual cause is a run path that does not\n' >&2
+            printf 'match the platform. As a workaround, set the loader path before\n' >&2
+            printf 'running:\n\n' >&2
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                printf '    export DYLD_LIBRARY_PATH=%s/cosserat/lib\n\n' "${PREFIX}" >&2
+            else
+                printf '    export LD_LIBRARY_PATH=%s/cosserat/lib\n\n' "${PREFIX}" >&2
+            fi
+            fail "installed programs do not load"
+        fi
+        SMOKE_TESTED="yes"
+        printf '  ok  %s\n' "$(basename "${PROGRAM}")"
+    done
+    if [[ "${SMOKE_TESTED}" == "no" ]]; then
+        printf '  no installed programs to check\n'
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # What the user needs to know afterwards
 # ---------------------------------------------------------------------------
 cat <<SUMMARY
