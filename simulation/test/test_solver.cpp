@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
 namespace cosserat::simulation {
 
 // ---------------------------------------------------------------------------
@@ -59,15 +61,30 @@ public:
 
     static std::uint64_t current_step(const Solver<SystemType>& solver)
     {
-        return solver.current_step;
+        return solver.m_current_step;
     }
 
     static double initial_time(const Solver<SystemType>& solver)
     {
-        return solver.initial_time;
+        return solver.m_initial_time;
     }
 
-    static double dt(const Solver<SystemType>& solver) { return solver.dt; }
+    static double dt(const Solver<SystemType>& solver) { return solver.m_dt; }
+
+    /** @brief Whether the solver has been run and so cannot run again. */
+    static bool has_run(const Solver<SystemType>& solver) { return solver.m_has_run; }
+
+    /**
+     * @brief Takes exactly one step.
+     *
+     * Private on the solver, since a caller driving a simulation has no reason
+     * to step by hand. The tests below are the exception: they are about what
+     * happens inside a step and in what order.
+     */
+    static double step(Solver<SystemType>& solver, SystemType& system, double time)
+    {
+        return solver.step(system, time);
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -663,7 +680,7 @@ TEST(SolverPrivateMethods, DynamicsStepOrdersAccelerationsBeforeDynamics)
 
 TEST_F(SolverTest, StepCallsMethodsInStaggeredOrder)
 {
-    solver.step(system, 0.0);
+    SolverTestPeer<MockSystem>::step(solver, system, 0.0);
 
     const std::vector<std::string> expected = {
         "0.update_kinematics",
@@ -690,7 +707,7 @@ TEST_F(SolverTest, StepCallsMethodsInStaggeredOrder)
 TEST_F(SolverTest, StepVisitsEverySubSystemInEveryPhase)
 {
     MockSystem wide_system{&log, 5};
-    solver.step(wide_system, 0.0);
+    SolverTestPeer<MockSystem>::step(solver, wide_system, 0.0);
 
     EXPECT_EQ(10u, log.count("update_kinematics"));  // two half-steps each
     EXPECT_EQ(5u, log.count("compute_internal_forces_and_torques"));
@@ -703,17 +720,22 @@ TEST_F(SolverTest, StepVisitsEverySubSystemInEveryPhase)
 // vector, not cheap if an implementation ever builds the container on demand.
 TEST_F(SolverTest, StepRefetchesFinalSystemsOncePerPhase)
 {
-    solver.step(system, 0.0);
+    SolverTestPeer<MockSystem>::step(solver, system, 0.0);
     EXPECT_EQ(5u, log.count("final_systems"));
 }
 
-TEST_F(SolverTest, StepOnEmptyCollectionStillRunsSystemLevelHooks)
+// A collection with no bodies still drives every system level phase; only the
+// per body work has nothing to do.
+TEST_F(SolverTest, AnEmptyCollectionStillRunsSystemLevelHooks)
 {
     MockSystem empty_system{&log, 0};
 
-    const double result = solver.step(empty_system, 1.0);
+    const double result = solver.full_solve(empty_system, 1.0, 1.0 + kDt);
 
     const std::vector<std::string> expected = {
+        // The initial pass, before anything is integrated.
+        "S.constrain_values", "S.constrain_rates", "S.apply_callbacks",
+        // Then the one step.
         "S.constrain_values", "S.synchronize", "S.constrain_rates",
         "S.constrain_values", "S.apply_callbacks",
     };
@@ -731,7 +753,7 @@ TEST_F(SolverTest, StepPassesCorrectStageTimesAndScales)
     const double mid = kStart + 0.5 * kDt;
     const double end = mid + 0.5 * kDt;
 
-    solver.step(system, kStart);
+    SolverTestPeer<MockSystem>::step(solver, system, kStart);
 
     // First kinematic half-step: un-advanced time, half dt.
     for (std::size_t idx = 0; idx < kSubSystemCount; ++idx)
@@ -775,8 +797,13 @@ TEST_F(SolverTest, StepPassesCorrectStageTimesAndScales)
 // exactly for kDt = 0.25 but are not guaranteed to for arbitrary dt.
 TEST_F(SolverTest, CallbackTimeAgreesWithReturnedTime)
 {
-    const double result = solver.step(system, 2.0);
-    EXPECT_NEAR(result, log.nth("apply_callbacks", 0).time, 1e-12);
+    const double result = solver.full_solve(system, 2.0, 2.0 + kDt);
+
+    // The last callback is the one for the step just finished, and it sees the
+    // same instant the run reports having reached.
+    const std::vector<Call> callbacks = log.filter("apply_callbacks");
+    ASSERT_FALSE(callbacks.empty());
+    EXPECT_NEAR(result, callbacks.back().time, 1e-12);
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +812,7 @@ TEST_F(SolverTest, CallbackTimeAgreesWithReturnedTime)
 
 TEST_F(SolverTest, FirstCallbackReceivesStepOne)
 {
-    solver.step(system, 0.0);
+    SolverTestPeer<MockSystem>::step(solver, system, 0.0);
     EXPECT_EQ(1u, log.nth("apply_callbacks", 0).step);
 }
 
@@ -794,7 +821,7 @@ TEST_F(SolverTest, StepCounterIncrementsMonotonically)
     double time = 0.0;
     for (std::uint64_t idx = 0; idx < 4; ++idx)
     {
-        time = solver.step(system, time);
+        time = SolverTestPeer<MockSystem>::step(solver, system, time);
         EXPECT_EQ(idx + 1, SolverTestPeer<MockSystem>::current_step(solver));
     }
 
@@ -812,54 +839,63 @@ TEST_F(SolverTest, ReturnedTimeDoesNotDriftOverManySteps)
     double time = 0.0;
     for (std::uint64_t idx = 0; idx < kSteps; ++idx)
     {
-        time = solver.step(system, time);
+        time = SolverTestPeer<MockSystem>::step(solver, system, time);
     }
     // Exact equality on purpose: the return is recomputed from the origin, so
     // this must not degrade into an accumulation.
     EXPECT_EQ(static_cast<double>(kSteps) * kDt, time);
 }
 
-TEST_F(SolverTest, InitialTimeIsLatchedOnFirstStepOnly)
+// The origin is latched by the run, from its start time, and every reported
+// time is measured from it rather than accumulated step by step. Stepping no
+// longer latches anything itself, since nothing outside a run can step.
+TEST_F(SolverTest, TheRunLatchesItsOriginFromTheStartTime)
 {
-    solver.step(system, 5.0);
-    EXPECT_EQ(5.0, SolverTestPeer<MockSystem>::initial_time(solver));
-
-    // A caller passing an inconsistent time is silently ignored for the return
-    // value -- but the value IS used as the first stage time, so the sub-step
-    // and the returned clock disagree. See notes.
-    log.clear();
-    const double result = solver.step(system, 999.0);
+    const double result = solver.full_solve(system, 5.0, 5.0 + 2.0 * kDt);
 
     EXPECT_EQ(5.0, SolverTestPeer<MockSystem>::initial_time(solver));
     EXPECT_EQ(5.0 + 2.0 * kDt, result);
-    EXPECT_DOUBLE_EQ(999.0, log.nth("update_kinematics", 0).time);
+    EXPECT_EQ(2u, SolverTestPeer<MockSystem>::current_step(solver));
 }
 
 // ---------------------------------------------------------------------------
-// reset()
+// A solver runs once
+//
+// A solver carries the step count and the origin of its run. Running one twice
+// would either continue the old run wearing the name of a new one, or throw
+// away the state that makes the returned times mean anything, so it is refused
+// outright rather than quietly reset.
 // ---------------------------------------------------------------------------
 
-TEST_F(SolverTest, ResetClearsCounterAndOrigin)
+TEST_F(SolverTest, AFreshSolverHasNotRun)
 {
-    solver.step(system, 5.0);
-    solver.step(system, 5.0 + kDt);
-    ASSERT_EQ(2u, SolverTestPeer<MockSystem>::current_step(solver));
-
-    solver.reset();
-
-    EXPECT_EQ(0u, SolverTestPeer<MockSystem>::current_step(solver));
-    EXPECT_EQ(0.0, SolverTestPeer<MockSystem>::initial_time(solver));
+    EXPECT_FALSE(SolverTestPeer<MockSystem>::has_run(solver));
 }
 
-TEST_F(SolverTest, ResetAllowsRelatchingANewOrigin)
+TEST_F(SolverTest, RunningMarksTheSolverUsed)
 {
-    solver.step(system, 0.0);
-    solver.reset();
+    solver.full_solve(system, 0.0, kDt);
 
-    const double result = solver.step(system, 100.0);
+    EXPECT_TRUE(SolverTestPeer<MockSystem>::has_run(solver));
+}
 
-    EXPECT_EQ(100.0, SolverTestPeer<MockSystem>::initial_time(solver));
-    EXPECT_EQ(100.0 + kDt, result);
+
+
+// Marked used before stepping rather than after, so a run that fails part way
+// through cannot be resumed: its step count no longer describes the run being
+// asked for.
+TEST_F(SolverTest, ASolverIsSpentEvenIfItsRunNeverFinishes)
+{
+    Solver<MockSystem> once{kDt};
+    int calls = 0;
+    auto thrower = [&calls](MockSystem&, double) -> bool
+    {
+        if (++calls > 2) throw std::runtime_error("criterion gave up");
+        return false;
+    };
+
+    EXPECT_THROW({ once.full_solve(system, thrower, 0.0); }, std::runtime_error);
+    EXPECT_TRUE(SolverTestPeer<MockSystem>::has_run(once));
 }
 
 // ---------------------------------------------------------------------------
@@ -933,7 +969,7 @@ TEST_F(SolverTest, TheInitialPassDoesNotSynchronize)
 // caller driving the solver step by step still gets no frame at step zero.
 TEST_F(SolverTest, StepAloneDoesNotRunTheInitialPass)
 {
-    solver.step(system, 0.0);
+    SolverTestPeer<MockSystem>::step(solver, system, 0.0);
 
     EXPECT_EQ(1u, log.count("apply_callbacks"));
     EXPECT_EQ(1u, log.nth("apply_callbacks", 0).step);
@@ -1018,7 +1054,144 @@ TEST(SolverFullSolve, SilentlyOvershootsNonMultipleInterval)
 
 #if GTEST_HAS_DEATH_TEST
 
+// ---------------------------------------------------------------------------
+// full_solve() with a stopping criterion
+//
+// The criterion form is the general one; the two time form is a convenience
+// built on it. What matters is that the criterion is asked before every step
+// including the first, that it may carry state across a run, and that the
+// time form stops exactly on its end rather than one step past it.
+// ---------------------------------------------------------------------------
+
+TEST_F(SolverTest, ACriterionSatisfiedAtTheStartIntegratesNothing)
+{
+    auto always = [](MockSystem&, double) {return true;};
+
+    const double result = solver.full_solve(system, always, 3.0);
+
+    EXPECT_EQ(3.0, result);
+    EXPECT_EQ(0u, SolverTestPeer<MockSystem>::current_step(solver));
+    // The initial pass still happened, so the starting state is on record.
+    EXPECT_EQ(1u, log.filter("apply_callbacks").size());
+    // But nothing was integrated.
+    EXPECT_TRUE(log.filter("update_kinematics").empty());
+}
+
+TEST_F(SolverTest, TheCriterionIsAskedBeforeEveryStep)
+{
+    int asked = 0;
+    auto counting = [&asked](MockSystem&, double) {return ++asked > 4; };
+
+    solver.full_solve(system, counting, 0.0);
+
+    // Four steps taken, and a fifth question that ended the run.
+    EXPECT_EQ(4u, SolverTestPeer<MockSystem>::current_step(solver));
+    EXPECT_EQ(5, asked);
+}
+
+// Held by reference, so a criterion accumulating state keeps it. A settling
+// test needs this.
+TEST_F(SolverTest, ACriterionKeepsItsStateAcrossTheRun)
+{
+    struct Counter
+    {
+        int seen = 0;
+        bool operator()(MockSystem&, double) {return ++seen >= 4;}
+    };
+    Counter counter;
+
+    solver.full_solve(system, counter, 0.0);
+
+    EXPECT_EQ(4, counter.seen) << "the criterion was copied, so its state was lost";
+    EXPECT_EQ(3u, SolverTestPeer<MockSystem>::current_step(solver));
+}
+
+TEST_F(SolverTest, ACriterionSeesTheAdvancingTime)
+{
+    std::vector<double> times;
+    auto recorder = [&times](MockSystem&, double time)
+    {
+        times.push_back(time);
+        return times.size() >= 4;
+    };
+
+    solver.full_solve(system, recorder, 2.0);
+
+    ASSERT_EQ(4u, times.size());
+    for (std::size_t idx = 0; idx < times.size(); ++idx)
+    {
+        EXPECT_DOUBLE_EQ(2.0 + static_cast<double>(idx) * kDt, times[idx]);
+    }
+}
+
+TEST_F(SolverTest, ACriterionSeesTheSystemItIsStopping)
+{
+    const MockSystem* seen = nullptr;
+    auto watcher = [&seen](MockSystem& observed, double)
+    {
+        seen = &observed;
+        return true;
+    };
+
+    solver.full_solve(system, watcher, 0.0);
+
+    EXPECT_EQ(&system, seen);
+}
+
+// A temporary criterion is the natural way to write this at a call site, so it
+// has to bind.
+TEST_F(SolverTest, ATemporaryCriterionIsAccepted)
+{
+    const double result = solver.full_solve(
+        system, [](MockSystem&, double time) {return time >= 3.0 * kDt;}, 0.0);
+
+    EXPECT_DOUBLE_EQ(3.0 * kDt, result);
+}
+
+// The interval divides evenly here, so the run must land on the end rather
+// than take one more step past it.
+TEST_F(SolverTest, TheTimeFormStopsExactlyOnItsEnd)
+{
+    solver.full_solve(system, 0.0, 10.0 * kDt);
+
+    EXPECT_EQ(10u, SolverTestPeer<MockSystem>::current_step(solver));
+}
+
+// And when it does not divide evenly, it covers the interval rather than
+// falling short of it.
+TEST_F(SolverTest, TheTimeFormCoversAnUnevenInterval)
+{
+    Solver<MockSystem> uneven{kDt};
+    const double end = 3.5 * kDt;
+
+    const double result = uneven.full_solve(system, 0.0, end);
+
+    EXPECT_EQ(4u, SolverTestPeer<MockSystem>::current_step(uneven));
+    EXPECT_GE(result, end);
+}
+
 using SolverDeathTest = SolverTest;
+
+TEST_F(SolverDeathTest, RunningTwiceIsRefused)
+{
+    Solver<MockSystem> once{kDt};
+    MockSystem local{&log, 2};
+    once.full_solve(local, 0.0, kDt);
+
+    EXPECT_DEATH({ once.full_solve(local, 0.0, kDt); }, "");
+}
+
+// The two overloads are the same run as far as this is concerned: having taken
+// either, the solver is spent.
+TEST_F(SolverDeathTest, TheOverloadsShareTheOneRun)
+{
+    Solver<MockSystem> once{kDt};
+    MockSystem local{&log, 2};
+    auto stopper = [](MockSystem&, double time) {return time >= kDt;};
+    once.full_solve(local, stopper, 0.0);
+
+    EXPECT_DEATH({ once.full_solve(local, 0.0, kDt); }, "");
+}
 
 TEST_F(SolverDeathTest, FullSolveRejectsIntervalShorterThanDt)
 {
@@ -1050,22 +1223,27 @@ TEST_F(SolverDeathTest, ARejectedRunRecordsNothing)
 // full_solve(): state lifecycle
 // ---------------------------------------------------------------------------
 
-TEST_F(SolverTest, FullSolveRestartsTheClockOnSecondCall)
+// A second run needs a second solver, and it latches its own origin rather
+// than carrying anything over from the first.
+TEST_F(SolverTest, AFreshSolverLatchesItsOwnOrigin)
 {
     const double first = solver.full_solve(system, 0.0, 1.0);
     ASSERT_EQ(1.0, first);
 
-    const double second = solver.full_solve(system, 10.0, 11.0);
+    Solver<MockSystem> next{kDt};
+    const double second = next.full_solve(system, 10.0, 11.0);
 
     EXPECT_EQ(11.0, second);
+    EXPECT_EQ(10.0, SolverTestPeer<MockSystem>::initial_time(next));
 }
 
-TEST_F(SolverTest, SecondFullSolveUsesCorrectStageTimes)
+TEST_F(SolverTest, ALaterRunUsesCorrectStageTimes)
 {
     solver.full_solve(system, 0.0, 1.0);
     log.clear();
 
-    solver.full_solve(system, 10.0, 11.0);
+    Solver<MockSystem> next{kDt};
+    next.full_solve(system, 10.0, 11.0);
 
     // First sub-step of the run starts at `start`...
     EXPECT_DOUBLE_EQ(10.0, log.nth("update_kinematics", 0).time);
@@ -1087,10 +1265,11 @@ TEST_F(SolverTest, SecondFullSolveUsesCorrectStageTimes)
 // rather than a monotonically increasing global step index. A callback that
 // writes output keyed on the step number will overwrite the first segment's
 // results with the second's.
-TEST_F(SolverTest, FullSolveRestartsCallbackStepIndexingEachRun)
+TEST_F(SolverTest, EachSolverIndexesItsCallbacksFromZero)
 {
     solver.full_solve(system, 0.0, 1.0);
-    solver.full_solve(system, 1.0, 2.0);
+    Solver<MockSystem> second{kDt};
+    second.full_solve(system, 1.0, 2.0);
 
     const std::vector<Call> callbacks = log.filter("apply_callbacks");
     ASSERT_EQ(10u, callbacks.size());
@@ -1106,7 +1285,8 @@ TEST_F(SolverTest, FullSolveRestartsCallbackStepIndexingEachRun)
 TEST_F(SolverTest, EachRunRecordsItsOwnStartingState)
 {
     solver.full_solve(system, 0.0, 1.0);
-    solver.full_solve(system, 1.0, 2.0);
+    Solver<MockSystem> second{kDt};
+    second.full_solve(system, 1.0, 2.0);
 
     const std::vector<Call> callbacks = log.filter("apply_callbacks");
     ASSERT_EQ(10u, callbacks.size());

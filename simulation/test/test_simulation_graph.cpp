@@ -14,6 +14,33 @@
 #include <vector>
 
 namespace cosserat::simulation {
+
+/**
+ * @brief Reaches the solver's private stepping for the ordering tests below.
+ *
+ * @c step is private, because a caller driving a simulation has no reason to
+ * take one step at a time. Testing the order of what happens inside a step is
+ * the exception, and the solver names this peer a friend for it.
+ *
+ * @tparam SystemType The collection the solver advances.
+ */
+template<typename SystemType>
+class SolverTestPeer
+{
+public: // Methods
+    /**
+     * @brief Takes exactly one step.
+     * @param solver The solver to drive.
+     * @param system The collection to advance.
+     * @param time Simulation time at the start of the step.
+     * @return The simulation time after the step.
+     */
+    static double step(Solver<SystemType>& solver, SystemType& system, double time)
+    {
+        return solver.step(system, time);
+    }
+};
+
 namespace {
 
 // nice_assert is assumed to abort. If it throws instead, compile with
@@ -525,7 +552,7 @@ TEST(PhaseOrdering, OneStepRunsThePhasesInTheDocumentedOrder)
     RecordingCollection collection;
     Solver<RecordingCollection> solver(1e-4);
 
-    solver.step(collection, 0.0);
+    SolverTestPeer<RecordingCollection>::step(solver, collection, 0.0);
 
     const std::vector<std::string> expected{
         "kinematic",          // half step: configuration advances
@@ -548,7 +575,7 @@ TEST(PhaseOrdering, InternalForcesPrecedeSynchronize)
 {
     RecordingCollection collection;
     Solver<RecordingCollection> solver(1e-4);
-    solver.step(collection, 0.0);
+    SolverTestPeer<RecordingCollection>::step(solver, collection, 0.0);
 
     const auto internal =
         std::find(collection.log.begin(), collection.log.end(), "internal");
@@ -563,7 +590,7 @@ TEST(PhaseOrdering, CallbacksPrecedeZeroingTheAccumulators)
 {
     RecordingCollection collection;
     Solver<RecordingCollection> solver(1e-4);
-    solver.step(collection, 0.0);
+    SolverTestPeer<RecordingCollection>::step(solver, collection, 0.0);
 
     const auto callbacks =
         std::find(collection.log.begin(), collection.log.end(), "callbacks");
@@ -579,7 +606,7 @@ TEST(PhaseOrdering, ConfigurationIsPinnedAfterEachHalfStep)
 {
     RecordingCollection collection;
     Solver<RecordingCollection> solver(1e-4);
-    solver.step(collection, 0.0);
+    SolverTestPeer<RecordingCollection>::step(solver, collection, 0.0);
 
     EXPECT_EQ(std::count(collection.log.begin(), collection.log.end(), "kinematic"), 2);
     EXPECT_EQ(std::count(collection.log.begin(), collection.log.end(),
@@ -650,10 +677,11 @@ TEST(SimulationGraphRun, ExternalLoadsDoNotAccumulateAcrossSteps)
     fixture.graph.finalize();
 
     Solver<SimulationGraph> solver(1e-4);
-    solver.step(fixture.graph, 0.0);
+    const double after_first =
+        SolverTestPeer<SimulationGraph>::step(solver, fixture.graph, 0.0);
     const double after_one = as_rod(fixture.rod).external_forces().cwiseAbs().maxCoeff();
 
-    solver.step(fixture.graph, 1e-4);
+    SolverTestPeer<SimulationGraph>::step(solver, fixture.graph, after_first);
     const double after_two = as_rod(fixture.rod).external_forces().cwiseAbs().maxCoeff();
 
     // Cleared at the end of each step, so both read the same near-zero value.
