@@ -61,6 +61,14 @@
  * lands correctly and then slides across the ground at constant speed forever,
  * which is right but not useful.
  *
+ * @section bsm_settling How long it runs for
+ *
+ * Until the scene stops moving, rather than for a fixed interval. The fastest
+ * material point anywhere is watched, and the run ends once that has stayed
+ * below @c settle_speed for @c required_time_below of simulation time, or at
+ * @c max_time if it never does. Which of those happened is reported, because
+ * a run that timed out has left a state that is still in motion.
+ *
  * @section bsm_expected What to expect
  *
  * With the defaults the rod comes to rest at about @c t = 0.5 with its lower
@@ -88,7 +96,7 @@
  *
  * @verbatim
  *   ./basic_square_meshes
- *   ./basic_square_meshes --end_time 0.5 --log_level debug
+ *   ./basic_square_meshes --max_time 2.0 --log_level debug
  *   ./basic_square_meshes --contact_damping 0.01   # watch it bounce forever
  *   ./basic_square_meshes --friction 0.0           # watch it slide forever
  *   ./basic_square_meshes --help
@@ -121,6 +129,7 @@
 #include "simulation/logging.hpp"
 #include "simulation/simulation_graph.hpp"
 #include "simulation/solver.hpp"
+#include "simulation/stop_criteria.hpp"
 
 #include "utils/assertions.hpp"
 #include "utils/file_utils.hpp"
@@ -167,7 +176,30 @@ constexpr double DEFAULT_FIELD_MARGIN = 0.05;
 
 constexpr double DEFAULT_DT = 1e-5;
 constexpr double DEFAULT_START_TIME = 0.0;
-constexpr double DEFAULT_END_TIME = 1.0;
+/** @brief Time to give up at when the scene never settles. */
+constexpr double DEFAULT_MAX_TIME = 10.0;
+
+/**
+ * @brief Speed below which nothing here counts as moving, in metres a second.
+ *
+ * Contact leaves this scene jittering rather than dead: the material speed
+ * comes to rest at a few millimetres a second and stays there. A centimetre a
+ * second sits comfortably above that residue while still being slow enough
+ * that the rod has visibly stopped, and it is a speed, so the same number
+ * would mean the same thing for a heavier obstacle. Something below the
+ * residue, a tenth of a millimetre a second say, never fires at all and the
+ * run always reaches its time limit.
+ */
+constexpr double DEFAULT_SETTLE_SPEED = 1e-2;
+
+/**
+ * @brief How long the scene must stay slow before the run stops.
+ *
+ * Long enough to outlast the rod rocking on the block, which a threshold alone
+ * would not: the speed dips below any sensible threshold at the turn of every
+ * rock, so a test that stopped on the first dip would stop mid swing.
+ */
+constexpr double DEFAULT_REQUIRED_TIME_BELOW = 0.25;
 
 constexpr int DEFAULT_DIAGNOSTIC_STEPS = 500;
 const std::string DEFAULT_DIAGNOSTIC_BASE_PATH =
@@ -311,9 +343,21 @@ ParseReturnType parse_arguments(int argc, char* argv[])
         cxxopts::value<double>()->default_value(std::to_string(DEFAULT_START_TIME))
     )
     (
-        "end_time",
-        "End time for the simulation",
-        cxxopts::value<double>()->default_value(std::to_string(DEFAULT_END_TIME))
+        "max_time",
+        "Time to give up at if the scene never settles",
+        cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_TIME))
+    )
+    (
+        "settle_speed",
+        "Speed below which nothing counts as moving, in metres a second",
+        cxxopts::value<double>()->default_value(
+            std::to_string(DEFAULT_SETTLE_SPEED))
+    )
+    (
+        "required_time_below",
+        "How long the scene must stay slow before the run stops",
+        cxxopts::value<double>()->default_value(
+            std::to_string(DEFAULT_REQUIRED_TIME_BELOW))
     )
     (
         "s,diagnostic_steps",
@@ -477,7 +521,9 @@ int run_simulation(
 
     const auto dt = parsed["dt"].as<double>();
     const auto start_time = parsed["start_time"].as<double>();
-    const auto end_time = parsed["end_time"].as<double>();
+    const auto max_time = parsed["max_time"].as<double>();
+    const auto settle_speed = parsed["settle_speed"].as<double>();
+    const auto required_time_below = parsed["required_time_below"].as<double>();
 
     const MeshBody& ground_body = std::get<MeshBody>(*ground);
     const MeshBody& block_body = std::get<MeshBody>(*block);
@@ -491,17 +537,42 @@ int run_simulation(
         2.0 * block_half_height
     );
     spdlog::info(
-        "Solving from {} to {} with dt {} ({} steps), writing to {}",
-        start_time, end_time, dt,
-        static_cast<std::int64_t>(std::round((end_time - start_time) / dt)),
+        "Solving from {} with dt {}, stopping once nothing moves faster than "
+        "{} m/s for {} s, or at {} s. Writing to {}",
+        start_time, dt, settle_speed, required_time_below, max_time,
         base_path.string()
     );
 
+    // Run until the scene stops rather than for a fixed interval, so it is
+    // followed to rest whatever the parameters happen to be. The measure is a
+    // speed rather than an energy: it is mass independent, so one threshold
+    // means the same for the rod and for a hundred and seventy kilograms of
+    // ground, and it counts spin, which a nodal speed misses for a rigid body
+    // turning in place. The obstacles are pinned, so they read zero and drop
+    // out of the maximum on their own.
     SolverType solver(dt);
-    const double finished = solver.full_solve(sim, start_time, end_time);
+    auto criterion = simulation::settled_when_slow<simulation::SimulationGraph>(
+        settle_speed, required_time_below, max_time
+    );
+    const double finished = solver.full_solve(sim, criterion, start_time);
 
     const CosseratRod& settled = std::get<CosseratRod>(*rod);
-    spdlog::info("Finished at simulation time {}", finished);
+    if (criterion.settled())
+    {
+        spdlog::info(
+            "Settled at simulation time {}, nothing moving faster than {:.3e} m/s",
+            finished, criterion.last_measured()
+        );
+    }
+    else
+    {
+        spdlog::warn(
+            "Never settled: stopped at the {} s limit with something still "
+            "moving at {:.3e} m/s. Raise --max_time, or --settle_speed if that "
+            "is as quiet as this scene gets.",
+            finished, criterion.last_measured()
+        );
+    }
     spdlog::info(
         "Rod rests between z = {:.5f} and {:.5f}, moving at {:.5f} m/s",
         settled.positions().col(2).minCoeff(),

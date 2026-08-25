@@ -575,6 +575,23 @@ if(BUILD_TESTING)
         DISCOVERY_TIMEOUT 30
     )
 
+    add_executable(test_stop_criteria simulation/test/test_stop_criteria.cpp)
+    target_link_libraries(test_stop_criteria
+        PRIVATE
+            simulation::simulation
+            physics::physics
+            math::math
+            utils::utils
+            GTest::gtest
+            GTest::gtest_main
+    )
+    target_compile_options(test_stop_criteria PRIVATE ${PROJECT_STRICT_WARNINGS})
+    gtest_discover_tests(test_stop_criteria
+        PROPERTIES
+            LABELS simulation
+        DISCOVERY_TIMEOUT 30
+    )
+
     add_executable(test_mesh_diagnostics simulation/test/test_mesh_diagnostics.cpp)
     target_link_libraries(test_mesh_diagnostics
         PRIVATE

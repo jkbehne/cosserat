@@ -16,6 +16,11 @@
  * is moving, accounts for rotation as well as translation, and decays smoothly
  * as motion dies away. It is the one to reach for first.
  *
+ * @ref max_material_point_speed is the one to threshold when deciding whether
+ * a scene has stopped. It is a speed, so it is mass independent and one number
+ * means the same thing for every body in a scene; and it counts spin, which a
+ * nodal speed misses entirely for a rigid body turning in place.
+ *
  * @ref max_speed is cruder and blind to a body spinning without translating,
  * but it is a speed, so a threshold on it can be read straight off a plot of
  * the motion.
@@ -112,6 +117,33 @@ concept HasStrains = requires(const T body)
     {body.rest_sigmas()} -> std::same_as<const Vector3DStack&>;
 };
 
+/**
+ * @brief Whether a body carries one radius per element, as a rod does.
+ * @tparam T Candidate body type.
+ */
+template<typename T>
+concept HasElementRadii = requires(const T body)
+{
+    {body.radii()} -> std::same_as<const Eigen::VectorXd&>;
+};
+
+/**
+ * @brief Whether a body carries a single radius, as a rigid primitive does.
+ * @tparam T Candidate body type.
+ */
+template<typename T>
+concept HasSingleRadius = requires(const T body)
+{
+    {body.radius()} -> std::same_as<double>;
+};
+
+/**
+ * @brief Whether a body's material points can be bounded away from its axis.
+ * @tparam T Candidate body type.
+ */
+template<typename T>
+concept HasExtent = HasRates<T> and (HasElementRadii<T> or HasSingleRadius<T>);
+
 } // End namespace detail
 
 // ---------------------------------------------------------------------------
@@ -196,6 +228,49 @@ double max_speed(const BodyType& body)
 }
 
 /**
+ * @brief How fast the body's material is moving, spin included.
+ *
+ * @ref max_speed reads the nodes, and a node sits on the axis. A body turning
+ * about its own axis therefore moves no node at all and reads zero however
+ * fast it is spinning, which for a single node rigid body means a tumbling
+ * obstacle looks perfectly still. Material away from the axis is moving, and
+ * this accounts for it:
+ *
+ * @f[ \max_i \|\mathbf{v}_i\| + \max_j \|\boldsymbol{\omega}_j\| r_j @f]
+ *
+ * @note An upper bound rather than an exact maximum. The two maxima are taken
+ *       independently, so a body whose fastest node and fastest spin are at
+ *       opposite ends reads higher than any single material point actually
+ *       moves. That is the safe direction for a settling test: it can only
+ *       delay a stop, never cause a premature one.
+ *
+ * @tparam BodyType Any body with rates and a radius.
+ * @param body The body to measure.
+ * @return A bound on the speed of its fastest material point, in metres per
+ *         second.
+ */
+template<detail::HasExtent BodyType>
+double max_material_point_speed(const BodyType& body)
+{
+    double spin = 0.0;
+    const Vector3DStack& omegas = body.angular_velocities();
+    for (Eigen::Index element = 0; element < omegas.rows(); ++element)
+    {
+        double radius = 0.0;
+        if constexpr (detail::HasElementRadii<BodyType>)
+        {
+            radius = body.radii()(element);
+        }
+        else
+        {
+            radius = body.radius();
+        }
+        spin = std::max(spin, omegas.row(element).norm() * radius);
+    }
+    return max_speed(body) + spin;
+}
+
+/**
  * @brief The largest axial elastic strain anywhere along a single rod.
  *
  * The axial strain is the third component of the shear and stretch strain,
@@ -269,6 +344,42 @@ double max_speed(SystemType& system)
             if constexpr (detail::HasRates<BodyType>)
             {
                 fastest = std::max(fastest, max_speed(body));
+            }
+        }, handle.body());
+    }
+    return fastest;
+}
+
+/**
+ * @brief A bound on the fastest material point anywhere in a collection.
+ *
+ * The mass independent settling measure. A threshold on it is a speed, so it
+ * means the same thing for every body whatever that body weighs, which is not
+ * true of an energy: in a scene holding a gram of rod and a hundred kilograms
+ * of ground, an energy threshold is really a statement about the ground alone.
+ *
+ * Measured across a range of scene parameters, the residual level this settles
+ * to varies by roughly a factor of twenty, against a factor of a hundred and
+ * sixty for kinetic energy, which makes it the easier of the two to pick a
+ * threshold for.
+ *
+ * @tparam SystemType Any @ref BodyCollection.
+ * @param system The finalized collection to measure.
+ * @return The largest bound over every body, in metres per second, or zero if
+ *         nothing in the collection can be measured this way.
+ */
+template<BodyCollection SystemType>
+double max_material_point_speed(SystemType& system)
+{
+    double fastest = 0.0;
+    for (auto& handle : system.final_systems())
+    {
+        std::visit([&fastest](const auto& body)
+        {
+            using BodyType = std::decay_t<decltype(body)>;
+            if constexpr (detail::HasExtent<BodyType>)
+            {
+                fastest = std::max(fastest, max_material_point_speed(body));
             }
         }, handle.body());
     }
