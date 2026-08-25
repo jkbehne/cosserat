@@ -1,21 +1,39 @@
 [submodule "external/eigen"]
-	path = external/eigen
+	path = cosserat/external/eigen
 	url = https://gitlab.com/libeigen/eigen.git
 [submodule "external/spdlog"]
-	path = external/spdlog
+	path = cosserat/external/spdlog
 	url = https://github.com/gabime/spdlog.git
 [submodule "external/cxxopts"]
-	path = external/cxxopts
+	path = cosserat/external/cxxopts
 	url = https://github.com/jarro2783/cxxopts.git
 [submodule "external/PyElastica"]
-	path = external/PyElastica
+	path = cosserat/external/PyElastica
 	url = https://github.com/GazzolaLab/PyElastica.git
 [submodule "external/json"]
-	path = external/json
+	path = cosserat/external/json
 	url = https://github.com/nlohmann/json.git
 [submodule "external/ordered_map"]
-	path = external/ordered_map
+	path = cosserat/external/ordered_map
 	url = https://github.com/Tessil/ordered-map.git
 [submodule "external/TriangleMeshDistance"]
-	path = external/TriangleMeshDistance
+	path = cosserat/external/TriangleMeshDistance
 	url = https://github.com/InteractiveComputerGraphics/TriangleMeshDistance.git
+[submodule "cosserat/external/cxxopts"]
+	path = cosserat/external/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
+[submodule "cosserat/external/TriangleMeshDistance"]
+	path = cosserat/external/TriangleMeshDistance
+	url = https://github.com/InteractiveComputerGraphics/TriangleMeshDistance.git
+[submodule "cosserat/external/eigen"]
+	path = cosserat/external/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "cosserat/external/json"]
+	path = cosserat/external/json
+	url = https://github.com/nlohmann/json.git
+[submodule "cosserat/external/ordered-map"]
+	path = cosserat/external/ordered-map
+	url = https://github.com/Tessil/ordered-map.git
+[submodule "cosserat/external/spdlog"]
+	path = cosserat/external/spdlog
+	url = https://github.com/gabime/spdlog.git
