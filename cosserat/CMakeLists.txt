@@ -604,7 +604,7 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/eigen/unsupported"
 )
 foreach(VENDORED IN ITEMS
     "external/json/include/nlohmann"
-    "external/ordered_map/include/tsl"
+    "external/ordered-map/include/tsl"
     "external/spdlog/include/spdlog"
     "external/cxxopts/include"
 )
