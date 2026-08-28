@@ -881,7 +881,12 @@ Matrix3DStack& CosseratRod::mutable_frames() {return m_frames;}
 Vector3DStack& CosseratRod::mutable_angular_velocities() {return m_angular_velocities;}
 Vector3DStack& CosseratRod::mutable_external_forces() {return m_external_forces;}
 Vector3DStack& CosseratRod::mutable_external_torques() {return m_external_torques;}
-
+Vector3DStack& CosseratRod::mutable_rest_kappas() {return m_rest_kappas;}
+Eigen::VectorXd& CosseratRod::mutable_rest_lengths() {return m_rest_lengths;}
+Eigen::VectorXd& CosseratRod::mutable_radii() {return m_radii;}
+Matrix3DStack& CosseratRod::mutable_shearing_matrices() {return m_shearing_matrices;}
+Vector3DStack& CosseratRod::mutable_rest_sigmas() {return m_rest_sigmas;}
+Eigen::VectorXd& mutable_densities() {return m_densities;}
 // Utility function for constructing straight rods
 CosseratRod straight_cosserat_rod(
     std::int64_t num_elements,

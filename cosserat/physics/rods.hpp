@@ -602,6 +602,18 @@ public: // Mutable accessors
     Vector3DStack& mutable_external_forces();
     /** @brief Element external torque accumulator, for torque rules and joints. */
     Vector3DStack& mutable_external_torques();
+    /** @brief Internal (voronoi) element curvaturesat rest, for growing rods */
+    Vector3DStack& mutable_rest_kappas();
+    /** @brief Rest lengths of the elements, for growing rods */
+    Eigen::VectorXd& mutable_rest_lengths();
+    /** @brief Radii of the elements, for growing rods */
+    Eigen::VectorXd& mutable_radii();
+    /** @brief Densities of the elements, for growing rods */
+    Eigen::VectorXd& mutable_densities();
+    /** @brief Shearing matrices, for growing rods */
+    Matrix3DStack& mutable_shearing_matrices();
+    /** @brief Rest sigmas, for growing rods */
+    Vector3DStack& mutable_rest_sigmas();
 };
 
 /**

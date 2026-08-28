@@ -1,6 +1,7 @@
 # Ignore build directories
 build/
 build_cpp/
+install/
 __pycache__/
 *.egg
 *.egg-info/
