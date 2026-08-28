@@ -886,7 +886,7 @@ Eigen::VectorXd& CosseratRod::mutable_rest_lengths() {return m_rest_lengths;}
 Eigen::VectorXd& CosseratRod::mutable_radii() {return m_radii;}
 Matrix3DStack& CosseratRod::mutable_shearing_matrices() {return m_shearing_matrices;}
 Vector3DStack& CosseratRod::mutable_rest_sigmas() {return m_rest_sigmas;}
-Eigen::VectorXd& mutable_densities() {return m_densities;}
+Eigen::VectorXd& CosseratRod::mutable_densities() {return m_densities;}
 // Utility function for constructing straight rods
 CosseratRod straight_cosserat_rod(
     std::int64_t num_elements,
